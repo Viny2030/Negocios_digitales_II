@@ -31,6 +31,16 @@
     --diverging-neg: #e34948;
     --diverging-mid: #f0efec;
 
+    /* Acentos de sección (paleta categórica, slots 3/4/5/7) — antes solo se
+       usaba el azul de YouTube para todo; con TikTok afuera del dashboard hay
+       lugar para diferenciar visualmente cada pestaña sin perder el sistema
+       de color validado (contraste + separación CVD ya resueltos en la
+       skill de dataviz). */
+    --accent-aqua:    #1baf7a;
+    --accent-yellow:  #eda100;
+    --accent-magenta: #e87ba4;
+    --accent-violet:  #4a3aa7;
+
     /* Chips de tier: fijos (no cambian con el tema) — el contraste del texto
        ya está resuelto por par en TIER_TEXT (JS), así que no dependen de si
        la página está en modo claro u oscuro. */
@@ -60,6 +70,11 @@
       --diverging-pos: #3987e5;
       --diverging-neg: #e66767;
       --diverging-mid: #2c4568;
+
+      --accent-aqua:    #199e70;
+      --accent-yellow:  #c98500;
+      --accent-magenta: #d55181;
+      --accent-violet:  #9085e9;
     }
   }
   html[data-theme="dark"] {
@@ -79,6 +94,10 @@
     --diverging-pos: #3987e5;
     --diverging-neg: #e66767;
     --diverging-mid: #2c4568;
+    --accent-aqua:    #199e70;
+    --accent-yellow:  #c98500;
+    --accent-magenta: #d55181;
+    --accent-violet:  #9085e9;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .status-badge.warning { background: rgba(250,178,25,0.22); color: #ffce6b; }
@@ -102,7 +121,12 @@
     padding: 14px 20px;
   }
   .header-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .brand { font-weight: 700; font-size: 16px; margin-right: 8px; white-space: nowrap; }
+  .brand { font-weight: 700; font-size: 16px; margin-right: 8px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+  .brand::before {
+    content: ""; width: 10px; height: 10px; border-radius: 3px; flex: none;
+    background: linear-gradient(135deg, var(--series-youtube), var(--accent-violet));
+  }
+  .brand-text { display: flex; flex-direction: column; }
   .brand small { display: block; font-weight: 400; color: var(--text-muted); font-size: 11px; }
 
   .search-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
@@ -124,6 +148,8 @@
     padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
   }
   button.primary:disabled { opacity: 0.6; cursor: default; }
+  button.primary.accent-violet { background: var(--accent-violet); }
+  button.ghost.accent-violet { border-color: var(--accent-violet); color: var(--accent-violet); }
   button.ghost {
     background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
     border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 13px;
@@ -136,6 +162,19 @@
     color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;
   }
   nav.tabs button.active { color: var(--text-primary); border-bottom-color: var(--series-youtube); }
+  /* Acento propio por pestaña — mismo criterio que los card-accent de abajo. */
+  nav.tabs button[data-tab="canales"].active { border-bottom-color: var(--accent-aqua); }
+  nav.tabs button[data-tab="tematicas"].active { border-bottom-color: var(--accent-magenta); }
+  nav.tabs button[data-tab="benchmarks"].active { border-bottom-color: var(--accent-yellow); }
+  nav.tabs button[data-tab="seguimiento"].active { border-bottom-color: var(--accent-violet); }
+
+  /* Franja de acento arriba de la tarjeta principal de cada pestaña — un
+     detalle de color por sección en vez de todo en el mismo azul plano. */
+  .card-accent { border-top: 3px solid var(--series-youtube); }
+  .card-accent.aqua    { border-top-color: var(--accent-aqua); }
+  .card-accent.magenta { border-top-color: var(--accent-magenta); }
+  .card-accent.yellow  { border-top-color: var(--accent-yellow); }
+  .card-accent.violet  { border-top-color: var(--accent-violet); }
 
   main { padding: 20px; max-width: 1280px; margin: 0 auto; }
   .tab-panel { display: none; }
@@ -163,7 +202,14 @@
 
   .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   @media (max-width: 700px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
-  .stat-tile { background: var(--page-plane); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .stat-tile {
+    background: var(--page-plane); border: 1px solid var(--border); border-left: 3px solid var(--tile-accent, var(--series-youtube));
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .stat-tile:nth-of-type(4n+1) { --tile-accent: var(--series-youtube); }
+  .stat-tile:nth-of-type(4n+2) { --tile-accent: var(--accent-aqua); }
+  .stat-tile:nth-of-type(4n+3) { --tile-accent: var(--accent-yellow); }
+  .stat-tile:nth-of-type(4n+4) { --tile-accent: var(--accent-violet); }
   .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
   .stat-value { font-size: 22px; font-weight: 700; }
 
@@ -203,12 +249,13 @@
   .bench-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 860px) { .bench-grid { grid-template-columns: 1fr; } }
   .bench-card dl { margin: 0; }
+  .bench-card { border-top: 3px solid var(--accent-yellow); }
   .bench-card dt { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
   .bench-card dd { margin: 2px 0 0; font-size: 13px; }
   .bench-range { font-size: 26px; font-weight: 700; }
 
   .topic-list { display: flex; flex-direction: column; gap: 8px; }
-  .topic-row { display: flex; align-items: center; justify-content: space-between; background: var(--page-plane); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  .topic-row { display: flex; align-items: center; justify-content: space-between; background: var(--page-plane); border: 1px solid var(--border); border-left: 3px solid var(--accent-magenta); border-radius: 8px; padding: 8px 12px; }
   .topic-row .topic-name { font-weight: 600; font-size: 13px; }
   .topic-row .topic-meta { font-size: 11px; color: var(--text-muted); }
   .topic-row button.remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; line-height: 1; }
@@ -245,13 +292,9 @@
 
 <header class="app-header">
   <div class="header-row">
-    <div class="brand">Channel Analytics<small>Dashboard — YouTube + TikTok</small></div>
+    <div class="brand"><span class="brand-text">Channel Analytics<small>Dashboard — YouTube</small></span></div>
     <form class="search-form" id="search-form">
       <input type="text" id="query-input" placeholder="Temática a buscar (ej: fitness, gaming, cocina)" required />
-      <div class="chip-toggle">
-        <label><input type="checkbox" value="youtube" class="platform-check" checked /> YouTube</label>
-        <label><input type="checkbox" value="tiktok" class="platform-check" checked /> TikTok</label>
-      </div>
       <input type="number" id="limit-input" min="4" max="100" value="25" title="Canales por plataforma" />
       <button type="submit" class="primary" id="search-btn">Buscar</button>
     </form>
@@ -270,19 +313,19 @@
   <div id="status-banner"></div>
 
   <section id="tab-resumen" class="tab-panel active">
-    <div id="resumen-empty" class="empty-note">Buscá una temática arriba para ver el resumen agregado de YouTube y TikTok.</div>
+    <div id="resumen-empty" class="empty-note">Buscá una temática arriba para ver el resumen agregado de YouTube.</div>
     <div id="resumen-content" style="display:none;">
 
       <div class="kpi-row" id="kpi-row" style="margin-bottom:16px;"></div>
 
       <div class="grid-2">
-        <div class="card">
+        <div class="card card-accent aqua">
           <h3>Canales por tier</h3>
           <p class="card-sub">Cantidad de canales encontrados en cada tramo de audiencia</p>
           <div class="legend-row" id="legend-platform"></div>
           <div id="chart-tiers"></div>
         </div>
-        <div class="card">
+        <div class="card card-accent violet">
           <h3>Desigualdad de audiencia (Gini)</h3>
           <p class="card-sub">0 = audiencia repartida parejo · 1 = un canal concentra todo</p>
           <div id="chart-gini"></div>
@@ -301,10 +344,7 @@
         <div id="chart-dist-er"></div>
       </div>
 
-      <div class="grid-2">
-        <div class="card" id="card-corr-youtube"></div>
-        <div class="card" id="card-corr-tiktok"></div>
-      </div>
+      <div class="card" id="card-corr-youtube"></div>
 
     </div>
   </section>
@@ -312,7 +352,7 @@
   <section id="tab-canales" class="tab-panel">
     <div id="canales-empty" class="empty-note">Buscá una temática para listar los canales normalizados.</div>
     <div id="canales-content" style="display:none;">
-      <div class="card">
+      <div class="card card-accent aqua">
         <div class="filter-row">
           <input type="text" id="channel-filter" placeholder="Filtrar por nombre o @handle…" />
           <span class="card-sub" id="channel-count-label" style="margin:0;"></span>
@@ -329,17 +369,40 @@
                 <th data-key="total_posts" class="num">Publicaciones</th>
                 <th data-key="normalized_er" class="num">NER %</th>
                 <th>Estado</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody id="channels-tbody"></tbody>
           </table>
         </div>
+        <p class="card-sub" style="margin-top:8px;margin-bottom:0;">Hacé clic en una fila para ver el dashboard de ese canal.</p>
+      </div>
+
+      <div class="card card-accent aqua" id="channel-detail-card" style="display:none;">
+        <div class="filter-row" style="justify-content:space-between;">
+          <h3 style="margin:0;" id="channel-detail-title">Canal</h3>
+          <button type="button" class="ghost" id="channel-detail-close">✕ Cerrar</button>
+        </div>
+        <p class="card-sub" id="channel-detail-sub"></p>
+        <div class="kpi-row" id="channel-detail-kpis" style="margin-bottom:14px;"></div>
+        <div class="grid-2">
+          <div>
+            <h3 style="font-size:13px;">Interacciones crudas (última muestra)</h3>
+            <div id="channel-detail-interactions"></div>
+          </div>
+          <div>
+            <h3 style="font-size:13px;">Engagement normalizado (NER) vs. benchmark de industria</h3>
+            <div id="channel-detail-ner-meter"></div>
+            <p class="card-sub" id="channel-detail-ner-sub" style="margin-top:8px;"></p>
+          </div>
+        </div>
+        <div id="channel-detail-actions" style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"></div>
       </div>
     </div>
   </section>
 
   <section id="tab-tematicas" class="tab-panel">
-    <div class="card">
+    <div class="card card-accent magenta">
       <h3>Comparar temáticas</h3>
       <p class="card-sub">Cada búsqueda que hacés arriba queda guardada acá (solo en esta sesión del navegador) para comparar temas entre sí.</p>
       <div id="topics-empty" class="empty-note">Todavía no hiciste ninguna búsqueda en esta sesión.</div>
@@ -352,7 +415,7 @@
   </section>
 
   <section id="tab-benchmarks" class="tab-panel">
-    <div class="card">
+    <div class="card card-accent yellow">
       <h3>Métricas y benchmarks del medio</h3>
       <p class="card-sub">Referencia de industria por plataforma (no depende de ninguna búsqueda) — fuente: <code>/api/v1/analytics/benchmarks</code></p>
       <div class="bench-grid" id="bench-grid"></div>
@@ -360,29 +423,28 @@
   </section>
 
   <section id="tab-seguimiento" class="tab-panel">
-    <div class="card">
+    <div class="card card-accent violet">
       <h3>Agregar canal al seguimiento diario</h3>
-      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida diaria del worker (03:00 UTC por default). Lista abierta: sumá los canales que quieras, sin límite fijo de plataformas soportadas más allá de YouTube y TikTok en esta fase.</p>
+      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida diaria del worker (03:00 UTC por default). Por ahora solo YouTube — TikTok está deshabilitado hasta contar con credenciales con su Research API aprobada (ver README).</p>
       <form class="track-form" id="track-form">
         <select id="track-platform">
           <option value="youtube">YouTube</option>
-          <option value="tiktok">TikTok</option>
         </select>
         <input type="text" id="track-identifier" placeholder="ID nativo (UCxxxx) o @handle" required />
         <input type="text" id="track-label" placeholder="Etiqueta (opcional, ej: Competidor A)" />
-        <button type="submit" class="primary" id="track-add-btn">Agregar canal</button>
+        <button type="submit" class="primary accent-violet" id="track-add-btn">Agregar canal</button>
       </form>
       <div id="track-form-status" class="job-result"></div>
     </div>
 
-    <div class="card">
+    <div class="card card-accent violet">
       <div class="filter-row" style="justify-content:space-between;">
         <h3 style="margin:0;">Canales trackeados</h3>
         <div class="inline-actions" style="align-items:center;gap:12px;">
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
             <input type="checkbox" id="track-show-inactive" /> Incluir dados de baja
           </label>
-          <button type="button" class="ghost" id="run-job-btn">▶ Correr job ahora</button>
+          <button type="button" class="ghost accent-violet" id="run-job-btn">▶ Correr job ahora</button>
         </div>
       </div>
       <p class="card-sub">Hacé clic en una fila para ver su historial de seguidores abajo.</p>
@@ -441,6 +503,8 @@
     topics: [],   // { query, ts, summary: [...PlatformSummary] }
     tracked: [],  // canales trackeados (seguimiento diario)
     selectedTrackedId: null,
+    benchmarks: {},        // platform -> PlatformBenchmark (cacheado desde loadBenchmarks)
+    selectedChannelId: null, // universal_id del canal con el detalle abierto en "Por canal"
   };
 
   // ---------------------------------------------------------------------
@@ -860,8 +924,8 @@
     if (erRows.length) renderRangeBars(document.getElementById("chart-dist-er"), erRows, { scale: "linear" });
     else document.getElementById("chart-dist-er").innerHTML = '<p class="empty-note">Sin suficientes canales.</p>';
 
-    // Correlaciones
-    ["youtube", "tiktok"].forEach(platform => {
+    // Correlaciones (TikTok deshabilitado, ver README)
+    ["youtube"].forEach(platform => {
       const cardEl = document.getElementById(`card-corr-${platform}`);
       const p = overview.platforms.find(x => x.platform === platform);
       const color = PLATFORM_COLOR[platform];
@@ -908,7 +972,12 @@
       const nameCell = c.url
         ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.name)}</a>`
         : escapeHtml(c.name);
-      return `<tr>
+      const selected = state.selectedChannelId === c.universal_id ? "selected-row" : "";
+      const alreadyTracked = state.tracked.some(tc => tc.platform === c.platform && tc.native_id === c.native_id);
+      const followBtn = alreadyTracked
+        ? `<span class="card-sub" style="margin:0;">✓ En seguimiento</span>`
+        : `<button type="button" class="link-action" data-action="follow" data-id="${escapeHtml(c.universal_id)}">+ Seguir</button>`;
+      return `<tr class="${selected}" data-selectable data-channel-id="${escapeHtml(c.universal_id)}">
         <td><span class="dot ${c.platform}"></span> ${PLATFORM_LABEL[c.platform] || c.platform}</td>
         <td>${nameCell}<div class="card-sub" style="margin:0;">${escapeHtml(c.handle || "")}</div></td>
         <td>${tierChip}</td>
@@ -917,8 +986,19 @@
         <td class="num">${fmtInt(c.total_posts)}</td>
         <td class="num">${fmtPct(c.normalized_er)}</td>
         <td>${anomaly}</td>
+        <td class="inline-actions">${followBtn}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="8" class="empty-note">Sin resultados</td></tr>`;
+    }).join("") || `<tr><td colspan="9" class="empty-note">Sin resultados</td></tr>`;
+
+    document.querySelectorAll("#channels-tbody tr[data-selectable]").forEach(tr => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("a, [data-action]")) return; // el link real y el botón de seguir no abren el detalle
+        showChannelDetail(tr.getAttribute("data-channel-id"));
+      });
+    });
+    document.querySelectorAll('#channels-tbody [data-action="follow"]').forEach(btn => {
+      btn.addEventListener("click", () => followChannelFromSearch(btn.getAttribute("data-id"), btn));
+    });
   }
 
   function initChannelsTableEvents() {
@@ -931,6 +1011,100 @@
       });
     });
     document.getElementById("channel-filter").addEventListener("input", renderChannelsTable);
+    document.getElementById("channel-detail-close").addEventListener("click", () => {
+      state.selectedChannelId = null;
+      document.getElementById("channel-detail-card").style.display = "none";
+      renderChannelsTable();
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Detalle de un canal individual (dashboard por canal) — usa los datos ya
+  // traídos por la búsqueda, sin pegarle de nuevo a la API. Un canal que NO
+  // está en seguimiento diario no tiene snapshots históricos todavía, así
+  // que esta vista muestra su "foto" actual con más detalle en vez de una
+  // curva en el tiempo (para eso está el botón "+ Seguir", que sí arma
+  // historial a partir de mañana).
+  // ---------------------------------------------------------------------
+  function showChannelDetail(universalId) {
+    const c = state.channels.find(x => x.universal_id === universalId);
+    if (!c) return;
+    state.selectedChannelId = universalId;
+    renderChannelsTable();
+
+    const card = document.getElementById("channel-detail-card");
+    card.style.display = "block";
+    card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    const nameHtml = c.url
+      ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.name)}</a>`
+      : escapeHtml(c.name);
+    document.getElementById("channel-detail-title").innerHTML =
+      `<span class="dot ${c.platform}"></span> ${nameHtml}`;
+    document.getElementById("channel-detail-sub").textContent =
+      `${escapeHtml(c.handle || c.native_id)} · ${PLATFORM_LABEL[c.platform] || c.platform} · datos de esta búsqueda, no historial`;
+
+    const tierChip = `<span class="tier-chip" style="background:${TIER_COLOR[c.tier]};color:${TIER_TEXT[c.tier] || '#ffffff'}">${TIER_LABEL[c.tier] || c.tier}</span>`;
+    document.getElementById("channel-detail-kpis").innerHTML = `
+      <div class="stat-tile"><div class="stat-label">Seguidores</div><div class="stat-value">${fmtCompact(c.followers)}</div></div>
+      <div class="stat-tile"><div class="stat-label">Vistas totales</div><div class="stat-value">${fmtCompact(c.total_views)}</div></div>
+      <div class="stat-tile"><div class="stat-label">Publicaciones</div><div class="stat-value">${fmtInt(c.total_posts)}</div></div>
+      <div class="stat-tile"><div class="stat-label">Tier</div><div class="stat-value" style="font-size:16px;">${tierChip}</div></div>`;
+
+    document.getElementById("channel-detail-interactions").innerHTML = `
+      <table class="data-table"><tbody>
+        <tr><td>Likes</td><td class="num">${fmtCompact(c.likes)}</td></tr>
+        <tr><td>Comentarios</td><td class="num">${fmtCompact(c.comments)}</td></tr>
+        <tr><td>Shares</td><td class="num">${fmtCompact(c.shares)}</td></tr>
+        <tr><td>Saves</td><td class="num">${fmtCompact(c.saves)}</td></tr>
+        <tr><td>Total interacciones crudas</td><td class="num">${fmtCompact(c.raw_interactions)}</td></tr>
+      </tbody></table>`;
+
+    const meterEl = document.getElementById("channel-detail-ner-meter");
+    const bench = state.benchmarks[c.platform];
+    if (bench) {
+      const maxScale = Math.max(bench.engagement_benchmark_max_pct * 1.5, c.normalized_er * 1.1, 0.1);
+      renderMeter(meterEl, c.normalized_er / maxScale, PLATFORM_COLOR[c.platform]);
+      const status = c.normalized_er < bench.engagement_benchmark_min_pct ? "por debajo del"
+        : c.normalized_er > bench.engagement_benchmark_max_pct ? "por encima del"
+        : "dentro del";
+      document.getElementById("channel-detail-ner-sub").textContent =
+        `NER ${fmtPct(c.normalized_er)} — ${status} rango típico de ${PLATFORM_LABEL[c.platform]} (${bench.engagement_benchmark_min_pct}–${bench.engagement_benchmark_max_pct}%).`;
+    } else {
+      meterEl.innerHTML = "";
+      document.getElementById("channel-detail-ner-sub").textContent = `NER ${fmtPct(c.normalized_er)}`;
+    }
+
+    const alreadyTracked = state.tracked.some(tc => tc.platform === c.platform && tc.native_id === c.native_id);
+    document.getElementById("channel-detail-actions").innerHTML = alreadyTracked
+      ? `<span class="status-badge good">${iconGood()}Ya está en seguimiento diario</span>`
+      : `<button type="button" class="primary accent-violet" id="channel-detail-follow-btn">+ Agregar a seguimiento diario</button>
+         <span class="card-sub" id="channel-detail-follow-status" style="margin:0;"></span>`;
+    const followBtn = document.getElementById("channel-detail-follow-btn");
+    if (followBtn) followBtn.addEventListener("click", () => followChannelFromSearch(c.universal_id, followBtn));
+  }
+
+  async function followChannelFromSearch(universalId, triggerEl) {
+    const c = state.channels.find(x => x.universal_id === universalId);
+    if (!c) return;
+    const originalText = triggerEl.textContent;
+    triggerEl.disabled = true;
+    triggerEl.textContent = "Agregando…";
+    try {
+      await fetchJSON(`${API}/tracking/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: c.platform, identifier: c.native_id, label: c.name }),
+      });
+      await loadTrackedChannels();
+      renderChannelsTable();
+      if (state.selectedChannelId === universalId) showChannelDetail(universalId);
+    } catch (e) {
+      triggerEl.disabled = false;
+      triggerEl.textContent = originalText;
+      const statusEl = document.getElementById("channel-detail-follow-status");
+      if (statusEl) { statusEl.textContent = "No se pudo agregar: " + e.message; statusEl.style.color = "var(--status-critical)"; }
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -960,14 +1134,15 @@
     });
 
     const categories = state.topics.map(t => ({ label: t.query.length > 14 ? t.query.slice(0, 13) + "…" : t.query }));
-    const followerSeries = ["youtube", "tiktok"].map(platform => ({
+    // TikTok deshabilitado (ver README) — una sola serie por ahora.
+    const followerSeries = ["youtube"].map(platform => ({
       label: PLATFORM_LABEL[platform], color: PLATFORM_COLOR[platform],
       values: state.topics.map(t => {
         const s = t.summary.find(x => x.platform === platform);
         return s ? s.total_followers : 0;
       }),
     }));
-    const erSeries = ["youtube", "tiktok"].map(platform => ({
+    const erSeries = ["youtube"].map(platform => ({
       label: PLATFORM_LABEL[platform], color: PLATFORM_COLOR[platform],
       values: state.topics.map(t => {
         const s = t.summary.find(x => x.platform === platform);
@@ -991,7 +1166,11 @@
   // ---------------------------------------------------------------------
   async function loadBenchmarks() {
     try {
-      const data = await fetchJSON(`${API}/analytics/benchmarks?platform=all`);
+      const data = await fetchJSON(`${API}/analytics/benchmarks?platform=youtube`);
+      // Se cachea para poder comparar el NER de un canal puntual (pestaña
+      // "Por canal") contra el rango de industria sin pegarle de nuevo a
+      // este endpoint cada vez que se abre el detalle de un canal.
+      data.benchmarks.forEach(b => { state.benchmarks[b.platform] = b; });
       document.getElementById("bench-grid").innerHTML = data.benchmarks.map(b => `
         <div class="card bench-card" style="margin-bottom:0;">
           <div class="platform-heading"><span class="dot ${b.platform}"></span>${PLATFORM_LABEL[b.platform] || b.platform}</div>
@@ -1053,7 +1232,13 @@
       const tierChip = snap
         ? `<span class="tier-chip" style="background:${TIER_COLOR[snap.tier]};color:${TIER_TEXT[snap.tier] || '#ffffff'}">${TIER_LABEL[snap.tier] || snap.tier}</span>`
         : "—";
-      const nameLabel = tc.label ? `${escapeHtml(tc.label)} <span class="card-sub" style="margin:0;">(${escapeHtml(tc.name || tc.handle || tc.native_id)})</span>` : escapeHtml(tc.name || tc.handle || tc.native_id);
+      const displayName = tc.name || tc.handle || tc.native_id;
+      const nameHtml = tc.url
+        ? `<a href="${escapeHtml(tc.url)}" target="_blank" rel="noopener">${escapeHtml(displayName)}</a>`
+        : escapeHtml(displayName);
+      const nameLabel = tc.label
+        ? `${escapeHtml(tc.label)} <span class="card-sub" style="margin:0;">(${nameHtml})</span>`
+        : nameHtml;
       const statusHtml = tc.active
         ? `<span class="status-badge good">${iconGood()}Activo</span>`
         : `<span class="status-badge warning">${iconWarn()}De baja</span>`;
@@ -1249,8 +1434,9 @@
       e.preventDefault();
       const query = document.getElementById("query-input").value.trim();
       if (!query) return;
-      const platforms = Array.from(document.querySelectorAll(".platform-check:checked")).map(el => el.value);
-      if (!platforms.length) { setBanner("error", "Elegí al menos una plataforma."); return; }
+      // TikTok deshabilitado (ver README — Research API requiere aprobación
+      // institucional): por ahora la única plataforma disponible es YouTube.
+      const platforms = ["youtube"];
       const limit = Math.max(4, Math.min(100, parseInt(document.getElementById("limit-input").value, 10) || 25));
       runSearch(query, platforms, limit);
     });

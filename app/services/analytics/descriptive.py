@@ -36,6 +36,17 @@ def describe(values: list[float], metric_name: str) -> DistributionStats:
     minimum = float(np.min(arr))
     maximum = float(np.max(arr))
 
+    # Con desvío estándar 0 (todos los valores idénticos — más común de lo
+    # que parece con datos reales: p. ej. varios canales con NER exactamente
+    # 0.0 porque YouTube no expone likes agregados) skew/kurtosis de SciPy
+    # dan NaN (dividen por std_dev al cubo/cuarta potencia). NaN no es JSON
+    # válido y tira un 500 al serializar la respuesta — una distribución
+    # constante no tiene asimetría/curtosis definida, así que 0.0 es el
+    # valor semánticamente correcto, no un parche.
+    is_constant = std_dev == 0
+    skewness = 0.0 if is_constant else float(scipy_stats.skew(arr, bias=True))
+    kurtosis = 0.0 if is_constant else float(scipy_stats.kurtosis(arr, bias=True))
+
     return DistributionStats(
         metric=metric_name,
         n=int(arr.size),
@@ -54,8 +65,8 @@ def describe(values: list[float], metric_name: str) -> DistributionStats:
         std_dev=std_dev,
         coefficient_of_variation=round(std_dev / mean, 4) if mean != 0 else 0.0,
         # Fisher-Pearson (bias=True para consistencia con la fórmula clásica g1)
-        skewness=float(scipy_stats.skew(arr, bias=True)),
-        kurtosis=float(scipy_stats.kurtosis(arr, bias=True)),
+        skewness=skewness,
+        kurtosis=kurtosis,
     )
 
 

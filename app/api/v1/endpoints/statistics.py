@@ -212,8 +212,15 @@ async def overview(
     """
     start = time.perf_counter()
 
+    # TikTok deshabilitado temporalmente: su Research API requiere aprobación
+    # institucional (ver README) y con credenciales de developer individual
+    # devuelve 401 access_token_invalid, lo que — por usar asyncio.gather sin
+    # tolerancia a fallos parciales en fetch_unified_channels — tiraba abajo
+    # toda la respuesta de /overview aunque YouTube funcionara bien. Volver a
+    # incluir Platform.TIKTOK acá en cuanto haya credenciales con ese producto
+    # habilitado, o cuando fetch_unified_channels tolere fallos por plataforma.
     channels_by_platform = await fetch_unified_channels(
-        query=query, platforms=[Platform.YOUTUBE, Platform.TIKTOK], limit=limit,
+        query=query, platforms=[Platform.YOUTUBE], limit=limit,
     )
 
     platform_overviews: list[PlatformOverview] = []
