@@ -1,0 +1,38 @@
+name: Daily channel tracking job
+
+# Dispara el worker diario (POST /api/v1/tracking/run-daily-job) contra una
+# instancia ya desplegada de Channel Analytics Core. GitHub Actions corre en
+# la nube y no puede llegar a "localhost" de tu compu, así que esto solo
+# funciona si la app está corriendo en un servidor con URL pública (Render,
+# Railway, Fly.io, un VPS, etc.) — no como reemplazo del scheduler interno
+# (APScheduler, app/core/scheduler.py) sino como alternativa externa, útil
+# si preferís no depender de que el proceso quede corriendo 24/7 solo.
+
+on:
+  schedule:
+    # 03:00 UTC — mismo horario default que DAILY_JOB_HOUR_UTC/DAILY_JOB_MINUTE_UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch: {} # permite dispararlo a mano desde la pestaña Actions, para probar
+
+jobs:
+  run-daily-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a /api/v1/tracking/run-daily-job
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$APP_BASE_URL" ]; then
+            echo "Falta configurar el secret APP_BASE_URL (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+          if [ -n "$ADMIN_TOKEN" ]; then
+            curl -sS -X POST "$APP_BASE_URL/api/v1/tracking/run-daily-job" \
+              -H "X-Admin-Token: $ADMIN_TOKEN" \
+              --fail-with-body
+          else
+            curl -sS -X POST "$APP_BASE_URL/api/v1/tracking/run-daily-job" \
+              --fail-with-body
+          fi
