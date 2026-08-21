@@ -1,0 +1,306 @@
+"""
+Schemas Pydantic v2: contratos de request/response de la API pública
+y la entidad universal `UnifiedChannel` que normaliza YouTube y TikTok
+bajo un mismo esquema.
+"""
+from datetime import date, datetime
+from typing import Optional
+
+from pydantic import BaseModel, Field, ConfigDict
+
+from app.models.domain import ContentFormat, ContentTier, Platform
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Entidad Universal Canal
+# ─────────────────────────────────────────────────────────────────────────
+
+class UnifiedChannel(BaseModel):
+    """Representación normalizada de un canal, sin importar su plataforma origen."""
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    universal_id: str = Field(..., description="ID único global: '<platform>:<native_id>'")
+    native_id: str = Field(..., description="Identificador nativo en la plataforma origen")
+    platform: Platform
+    content_format: ContentFormat
+    name: str
+    handle: Optional[str] = Field(None, description="@usuario / nombre corto público")
+    url: Optional[str] = None
+
+    # --- Métricas de inventario / audiencia ---
+    followers: int = Field(..., ge=0, description="Suscriptores (YouTube) o seguidores (TikTok)")
+    total_views: int = Field(0, ge=0, description="Vistas históricas acumuladas")
+    total_posts: int = Field(0, ge=0, description="Cantidad de videos publicados")
+
+    # --- Métricas de interacción (última ventana muestreada) ---
+    raw_interactions: int = Field(0, ge=0, description="Likes + comments (+ shares/saves si aplica)")
+    likes: int = 0
+    comments: int = 0
+    shares: int = 0
+    saves: int = 0
+
+    # --- Métricas normalizadas (ver services/analytics/normalizer.py) ---
+    normalized_er: float = Field(0.0, description="Engagement rate normalizado, en % (NER)")
+    tier: ContentTier
+
+    fetched_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Requests
+# ─────────────────────────────────────────────────────────────────────────
+
+class ChannelSearchRequest(BaseModel):
+    """Payload de POST /api/v1/analyze (Diagrama 1)."""
+
+    query: str = Field(..., min_length=1, max_length=200, description="Tema / palabra clave a buscar")
+    platforms: list[Platform] = Field(
+        default_factory=lambda: [Platform.YOUTUBE, Platform.TIKTOK],
+        description="Plataformas a consultar. 'all' expande a todas las soportadas.",
+    )
+    limit: int = Field(25, ge=1, le=100, description="Máximo de canales por plataforma")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Metadatos de ejecución (compartido por todas las respuestas)
+# ─────────────────────────────────────────────────────────────────────────
+
+class ExecutionMeta(BaseModel):
+    query: Optional[str] = None
+    platforms_requested: list[Platform] = []
+    response_time_ms: float
+    status: str = "ok"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Métricas y benchmarks del medio (referencia de industria por plataforma)
+# ─────────────────────────────────────────────────────────────────────────
+
+class PlatformBenchmark(BaseModel):
+    """
+    Ficha de referencia de industria para una plataforma: la Matriz
+    Comparativa de Métricas (ver README) convertida en datos consumibles
+    por la API. Son valores estáticos publicados por la industria, no
+    calculados sobre la búsqueda actual.
+    """
+
+    platform: Platform
+    primary_reach_metric: str
+    retention_metric: str
+    engagement_formula: str
+    engagement_benchmark_min_pct: float
+    engagement_benchmark_max_pct: float
+    typical_posting_frequency: str
+    content_lifespan: str
+    raw_metric_bias_risk: str
+
+
+class BenchmarkComparison(BaseModel):
+    """Compara el ER promedio observado en una búsqueda contra el rango de industria."""
+
+    platform: Platform
+    observed_avg_er: float
+    benchmark_min_pct: float
+    benchmark_max_pct: float
+    status: str = Field(..., description="'below' | 'within' | 'above' del rango de industria")
+    delta_from_range_pct: float = Field(
+        0.0, description="Qué tan lejos está del borde más cercano del rango, en % relativo (0 si está dentro)"
+    )
+
+
+class BenchmarkResponse(BaseModel):
+    meta: ExecutionMeta
+    benchmarks: list[PlatformBenchmark]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Responses: búsqueda unificada
+# ─────────────────────────────────────────────────────────────────────────
+
+class PlatformSummary(BaseModel):
+    platform: Platform
+    channel_count: int
+    total_followers: int
+    total_views: int
+    avg_normalized_er: float
+    benchmark: Optional[BenchmarkComparison] = Field(
+        None, description="Comparación del ER promedio observado contra el benchmark de industria"
+    )
+
+
+class SearchResponse(BaseModel):
+    """Respuesta de GET /api/v1/channels/search y POST /api/v1/analyze."""
+
+    meta: ExecutionMeta
+    summary_by_platform: list[PlatformSummary]
+    channels: list[UnifiedChannel]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Responses: motor estadístico
+# ─────────────────────────────────────────────────────────────────────────
+
+class DistributionStats(BaseModel):
+    """Tendencia central, dispersión y forma para una métrica dada."""
+
+    metric: str
+    n: int
+    mean: float
+    median: float
+    min: float
+    max: float
+    range: float = Field(..., description="max - min")
+    p5: float
+    p10: float
+    p25: float
+    p75: float
+    p90: float
+    p95: float
+    iqr: float
+    std_dev: float
+    coefficient_of_variation: float = Field(
+        ..., description="std_dev / mean (0 si mean=0). Permite comparar dispersión entre métricas de distinta escala."
+    )
+    skewness: float
+    kurtosis: float
+
+
+class DistributionResponse(BaseModel):
+    meta: ExecutionMeta
+    platform: Platform
+    followers: DistributionStats
+    normalized_er: DistributionStats
+    tier_breakdown: dict[str, int]
+    benchmark: Optional[BenchmarkComparison] = None
+
+
+class InequalityStats(BaseModel):
+    platform: Platform
+    n: int
+    gini_followers: float = Field(..., ge=0, le=1)
+    pareto_alpha: Optional[float] = None
+    top_10_pct_share: float = Field(..., description="Proporción de seguidores en manos del top 10%")
+
+
+class InequalityResponse(BaseModel):
+    meta: ExecutionMeta
+    results: list[InequalityStats]
+
+
+class CorrelationPair(BaseModel):
+    variable_x: str
+    variable_y: str
+    spearman_rho: float
+    pearson_r: float
+    n: int
+    interpretation: str
+
+
+class CorrelationResponse(BaseModel):
+    meta: ExecutionMeta
+    platform: Platform
+    correlations: list[CorrelationPair]
+
+
+class AnomalyFlag(BaseModel):
+    universal_id: str
+    name: str
+    platform: Platform
+    followers: int
+    normalized_er: float
+    reason: str
+
+
+class AnomalyResponse(BaseModel):
+    meta: ExecutionMeta
+    platform: Platform
+    flagged: list[AnomalyFlag]
+    total_evaluated: int
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Response: overview cross-platform (todo-en-uno)
+# ─────────────────────────────────────────────────────────────────────────
+
+class PlatformOverview(BaseModel):
+    """
+    Consolida, para una plataforma, todo lo que hoy se sirve por separado
+    en /distribution, /inequality, /correlation y /anomalies — más el
+    benchmark de industria. Los sub-análisis que requieren un mínimo de
+    observaciones (correlación >=3, anomalías >=4) se omiten (None / [])
+    en vez de hacer fallar la respuesta completa cuando la cohorte es chica.
+    """
+
+    platform: Platform
+    channel_count: int
+    followers: Optional[DistributionStats] = None
+    normalized_er: Optional[DistributionStats] = None
+    tier_breakdown: dict[str, int] = {}
+    inequality: Optional[InequalityStats] = None
+    correlations: list[CorrelationPair] = []
+    anomalies: list[AnomalyFlag] = []
+    benchmark: Optional[BenchmarkComparison] = None
+
+
+class OverviewResponse(BaseModel):
+    meta: ExecutionMeta
+    platforms: list[PlatformOverview]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Seguimiento diario: canales trackeados + snapshots (worker diario)
+# ─────────────────────────────────────────────────────────────────────────
+
+class TrackedChannelCreate(BaseModel):
+    """Payload de POST /api/v1/tracking/channels."""
+
+    platform: Platform = Field(..., description="youtube | tiktok")
+    identifier: str = Field(
+        ..., min_length=1, max_length=200,
+        description="ID nativo del canal (p. ej. 'UCxxxx' en YouTube) o @handle",
+    )
+    label: Optional[str] = Field(None, max_length=200, description="Etiqueta propia, opcional (ej: 'Competidor A')")
+
+
+class ChannelSnapshotOut(BaseModel):
+    snapshot_date: date
+    followers: int
+    total_views: int
+    total_posts: int
+    normalized_er: float
+    tier: str
+
+
+class TrackedChannelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    platform: Platform
+    native_id: str
+    handle: Optional[str] = None
+    label: Optional[str] = None
+    name: Optional[str] = None
+    url: Optional[str] = None
+    active: bool
+    created_at: datetime
+    latest_snapshot: Optional[ChannelSnapshotOut] = None
+
+
+class TrackedChannelListResponse(BaseModel):
+    meta: ExecutionMeta
+    channels: list[TrackedChannelOut]
+
+
+class ChannelHistoryResponse(BaseModel):
+    meta: ExecutionMeta
+    channel: TrackedChannelOut
+    snapshots: list[ChannelSnapshotOut]
+
+
+class DailyJobResultOut(BaseModel):
+    meta: ExecutionMeta
+    channels_evaluated: int
+    snapshots_created: int
+    snapshots_updated: int
+    errors: list[str]

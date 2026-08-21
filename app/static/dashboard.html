@@ -1,0 +1,1270 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Channel Analytics — Dashboard</title>
+<link rel="icon" href="/favicon.ico" />
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page-plane:     #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+
+    --series-youtube:      #2a78d6;
+    --series-youtube-soft: rgba(42,120,214,0.16);
+    --series-tiktok:       #eb6834;
+    --series-tiktok-soft:  rgba(235,104,52,0.16);
+
+    --status-good:     #0ca30c;
+    --status-warning:  #fab219;
+    --status-serious:  #ec835a;
+    --status-critical: #d03b3b;
+
+    --diverging-pos: #2a78d6;
+    --diverging-neg: #e34948;
+    --diverging-mid: #f0efec;
+
+    /* Chips de tier: fijos (no cambian con el tema) — el contraste del texto
+       ya está resuelto por par en TIER_TEXT (JS), así que no dependen de si
+       la página está en modo claro u oscuro. */
+    --tier-1: #a9c9f2;
+    --tier-2: #6da7ec;
+    --tier-3: #2a78d6;
+    --tier-4: #1c5cab;
+    --tier-5: #0d366b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1:      #101f38;
+      --page-plane:     #0a1628;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #8b96ab;
+      --gridline:       #1f3350;
+      --baseline:       #2c4568;
+      --border:         rgba(255,255,255,0.10);
+
+      --series-youtube:      #3987e5;
+      --series-youtube-soft: rgba(57,135,229,0.20);
+      --series-tiktok:       #d95926;
+      --series-tiktok-soft:  rgba(217,89,38,0.20);
+
+      --diverging-pos: #3987e5;
+      --diverging-neg: #e66767;
+      --diverging-mid: #2c4568;
+    }
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:      #101f38;
+    --page-plane:     #0a1628;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #8b96ab;
+    --gridline:       #1f3350;
+    --baseline:       #2c4568;
+    --border:         rgba(255,255,255,0.10);
+    --series-youtube:      #3987e5;
+    --series-youtube-soft: rgba(57,135,229,0.20);
+    --series-tiktok:       #d95926;
+    --series-tiktok-soft:  rgba(217,89,38,0.20);
+    --diverging-pos: #3987e5;
+    --diverging-neg: #e66767;
+    --diverging-mid: #2c4568;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .status-badge.warning { background: rgba(250,178,25,0.22); color: #ffce6b; }
+  }
+  html[data-theme="dark"] .status-badge.warning { background: rgba(250,178,25,0.22); color: #ffce6b; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--series-youtube); }
+
+  header.app-header {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+  }
+  .header-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 16px; margin-right: 8px; white-space: nowrap; }
+  .brand small { display: block; font-weight: 400; color: var(--text-muted); font-size: 11px; }
+
+  .search-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+  .search-form input[type="text"] {
+    flex: 1; min-width: 180px; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--page-plane); color: var(--text-primary); font-size: 14px;
+  }
+  .search-form input[type="number"] { width: 72px; padding: 8px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page-plane); color: var(--text-primary); }
+  .chip-toggle { display: flex; gap: 6px; }
+  .chip-toggle label {
+    display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 999px;
+    border: 1px solid var(--border); font-size: 13px; cursor: pointer; user-select: none; color: var(--text-secondary);
+  }
+  .chip-toggle input { accent-color: var(--series-youtube); }
+  .chip-toggle label:has(input:checked) { color: var(--text-primary); border-color: var(--text-muted); }
+
+  button.primary {
+    background: var(--series-youtube); color: white; border: none; border-radius: 8px;
+    padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.6; cursor: default; }
+  button.ghost {
+    background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
+    border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 13px;
+  }
+  #theme-toggle { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0; }
+
+  nav.tabs { display: flex; gap: 4px; margin-top: 12px; }
+  nav.tabs button {
+    background: transparent; border: none; padding: 8px 14px; border-radius: 8px 8px 0 0;
+    color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  nav.tabs button.active { color: var(--text-primary); border-bottom-color: var(--series-youtube); }
+
+  main { padding: 20px; max-width: 1280px; margin: 0 auto; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  #status-banner { display: none; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+  #status-banner.error { display: block; background: rgba(211,59,59,0.10); color: var(--status-critical); border: 1px solid rgba(211,59,59,0.25); }
+  #status-banner.loading { display: block; background: rgba(42,120,214,0.08); color: var(--series-youtube); border: 1px solid rgba(42,120,214,0.2); }
+  #status-banner.empty { display: block; background: var(--surface-1); color: var(--text-secondary); border: 1px solid var(--border); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 14px; }
+  .card .card-sub { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
+
+  .platform-heading { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.youtube { background: var(--series-youtube); }
+  .dot.tiktok { background: var(--series-tiktok); }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 700px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat-tile { background: var(--page-plane); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .stat-value { font-size: 22px; font-weight: 700; }
+
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+    padding: 3px 8px; border-radius: 999px; margin-top: 6px;
+  }
+  .status-badge.good { background: rgba(12,163,12,0.12); color: var(--status-good); }
+  .status-badge.warning { background: rgba(250,178,25,0.16); color: #9a6900; }
+  .status-badge svg { width: 12px; height: 12px; flex: none; }
+
+  .legend-row { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+  .legend-row .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .axis-label { fill: var(--text-muted); font-size: 10px; }
+  .grid-line { stroke: var(--gridline); stroke-width: 1; }
+  .baseline-line { stroke: var(--baseline); stroke-width: 1; }
+  .value-label { fill: var(--text-secondary); font-size: 10px; font-weight: 600; }
+  .cat-label { fill: var(--text-secondary); font-size: 11px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.data-table th { text-align: left; font-size: 11px; color: var(--text-muted); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; white-space: nowrap; user-select: none; }
+  table.data-table th:hover { color: var(--text-primary); }
+  table.data-table td { padding: 7px 10px; border-bottom: 1px solid var(--gridline); font-variant-numeric: tabular-nums; }
+  table.data-table tbody tr:hover { background: var(--page-plane); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .tier-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: white; }
+
+  .anomaly-flag { color: var(--status-critical); font-weight: 700; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+
+  .filter-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+  .filter-row input[type="text"] { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--page-plane); color: var(--text-primary); font-size: 13px; min-width: 200px; }
+
+  .bench-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .bench-grid { grid-template-columns: 1fr; } }
+  .bench-card dl { margin: 0; }
+  .bench-card dt { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+  .bench-card dd { margin: 2px 0 0; font-size: 13px; }
+  .bench-range { font-size: 26px; font-weight: 700; }
+
+  .topic-list { display: flex; flex-direction: column; gap: 8px; }
+  .topic-row { display: flex; align-items: center; justify-content: space-between; background: var(--page-plane); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  .topic-row .topic-name { font-weight: 600; font-size: 13px; }
+  .topic-row .topic-meta { font-size: 11px; color: var(--text-muted); }
+  .topic-row button.remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; line-height: 1; }
+
+  .track-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+  .track-form select, .track-form input[type="text"] {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
+  }
+  .track-form select { min-width: 110px; }
+  .track-form input[type="text"] { min-width: 160px; flex: 1; }
+  .track-form input#track-label { min-width: 140px; flex: 0 1 160px; }
+  .job-result { font-size: 12px; color: var(--text-secondary); margin-top: 10px; }
+  .job-result .job-errors { color: var(--status-critical); margin-top: 4px; }
+  table.data-table tr.selected-row { background: var(--series-youtube-soft); }
+  table.data-table tbody tr[data-selectable] { cursor: pointer; }
+  .inline-actions { display: flex; gap: 6px; }
+  button.link-action {
+    background: none; border: none; color: var(--series-youtube); cursor: pointer;
+    font-size: 12px; padding: 0; text-decoration: underline;
+  }
+  button.link-action.danger { color: var(--status-critical); }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 100; background: var(--text-primary); color: var(--surface-1);
+    font-size: 12px; padding: 6px 9px; border-radius: 6px; opacity: 0; transition: opacity 0.1s; max-width: 240px;
+  }
+
+  .empty-note { color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  footer { text-align: center; color: var(--text-muted); font-size: 11px; padding: 24px 0 40px; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="header-row">
+    <div class="brand">Channel Analytics<small>Dashboard — YouTube + TikTok</small></div>
+    <form class="search-form" id="search-form">
+      <input type="text" id="query-input" placeholder="Temática a buscar (ej: fitness, gaming, cocina)" required />
+      <div class="chip-toggle">
+        <label><input type="checkbox" value="youtube" class="platform-check" checked /> YouTube</label>
+        <label><input type="checkbox" value="tiktok" class="platform-check" checked /> TikTok</label>
+      </div>
+      <input type="number" id="limit-input" min="4" max="100" value="25" title="Canales por plataforma" />
+      <button type="submit" class="primary" id="search-btn">Buscar</button>
+    </form>
+    <button class="ghost" id="theme-toggle" title="Cambiar tema" type="button">◐</button>
+  </div>
+  <nav class="tabs">
+    <button data-tab="resumen" class="active">Resumen</button>
+    <button data-tab="canales">Por canal</button>
+    <button data-tab="tematicas">Por temática</button>
+    <button data-tab="benchmarks">Métricas del medio</button>
+    <button data-tab="seguimiento">Seguimiento diario</button>
+  </nav>
+</header>
+
+<main>
+  <div id="status-banner"></div>
+
+  <section id="tab-resumen" class="tab-panel active">
+    <div id="resumen-empty" class="empty-note">Buscá una temática arriba para ver el resumen agregado de YouTube y TikTok.</div>
+    <div id="resumen-content" style="display:none;">
+
+      <div class="kpi-row" id="kpi-row" style="margin-bottom:16px;"></div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>Canales por tier</h3>
+          <p class="card-sub">Cantidad de canales encontrados en cada tramo de audiencia</p>
+          <div class="legend-row" id="legend-platform"></div>
+          <div id="chart-tiers"></div>
+        </div>
+        <div class="card">
+          <h3>Desigualdad de audiencia (Gini)</h3>
+          <p class="card-sub">0 = audiencia repartida parejo · 1 = un canal concentra todo</p>
+          <div id="chart-gini"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Distribución de seguidores</h3>
+        <p class="card-sub">P10 – P90 (barra clara), P25 – P75 / IQR (barra sólida), mediana (marca). Escala logarítmica.</p>
+        <div id="chart-dist-followers"></div>
+      </div>
+
+      <div class="card">
+        <h3>Distribución de Engagement Rate normalizado (NER)</h3>
+        <p class="card-sub">P10 – P90 (barra clara), P25 – P75 / IQR (barra sólida), mediana (marca)</p>
+        <div id="chart-dist-er"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card" id="card-corr-youtube"></div>
+        <div class="card" id="card-corr-tiktok"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="tab-canales" class="tab-panel">
+    <div id="canales-empty" class="empty-note">Buscá una temática para listar los canales normalizados.</div>
+    <div id="canales-content" style="display:none;">
+      <div class="card">
+        <div class="filter-row">
+          <input type="text" id="channel-filter" placeholder="Filtrar por nombre o @handle…" />
+          <span class="card-sub" id="channel-count-label" style="margin:0;"></span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table" id="channels-table">
+            <thead>
+              <tr>
+                <th data-key="platform">Plataforma</th>
+                <th data-key="name">Canal</th>
+                <th data-key="tier">Tier</th>
+                <th data-key="followers" class="num">Seguidores</th>
+                <th data-key="total_views" class="num">Vistas</th>
+                <th data-key="total_posts" class="num">Publicaciones</th>
+                <th data-key="normalized_er" class="num">NER %</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="channels-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-tematicas" class="tab-panel">
+    <div class="card">
+      <h3>Comparar temáticas</h3>
+      <p class="card-sub">Cada búsqueda que hacés arriba queda guardada acá (solo en esta sesión del navegador) para comparar temas entre sí.</p>
+      <div id="topics-empty" class="empty-note">Todavía no hiciste ninguna búsqueda en esta sesión.</div>
+      <div id="topics-content" style="display:none;">
+        <div class="topic-list" id="topic-list" style="margin-bottom:16px;"></div>
+        <div id="chart-topics-followers" style="margin-bottom:20px;"></div>
+        <div id="chart-topics-er"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-benchmarks" class="tab-panel">
+    <div class="card">
+      <h3>Métricas y benchmarks del medio</h3>
+      <p class="card-sub">Referencia de industria por plataforma (no depende de ninguna búsqueda) — fuente: <code>/api/v1/analytics/benchmarks</code></p>
+      <div class="bench-grid" id="bench-grid"></div>
+    </div>
+  </section>
+
+  <section id="tab-seguimiento" class="tab-panel">
+    <div class="card">
+      <h3>Agregar canal al seguimiento diario</h3>
+      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida diaria del worker (03:00 UTC por default). Lista abierta: sumá los canales que quieras, sin límite fijo de plataformas soportadas más allá de YouTube y TikTok en esta fase.</p>
+      <form class="track-form" id="track-form">
+        <select id="track-platform">
+          <option value="youtube">YouTube</option>
+          <option value="tiktok">TikTok</option>
+        </select>
+        <input type="text" id="track-identifier" placeholder="ID nativo (UCxxxx) o @handle" required />
+        <input type="text" id="track-label" placeholder="Etiqueta (opcional, ej: Competidor A)" />
+        <button type="submit" class="primary" id="track-add-btn">Agregar canal</button>
+      </form>
+      <div id="track-form-status" class="job-result"></div>
+    </div>
+
+    <div class="card">
+      <div class="filter-row" style="justify-content:space-between;">
+        <h3 style="margin:0;">Canales trackeados</h3>
+        <div class="inline-actions" style="align-items:center;gap:12px;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
+            <input type="checkbox" id="track-show-inactive" /> Incluir dados de baja
+          </label>
+          <button type="button" class="ghost" id="run-job-btn">▶ Correr job ahora</button>
+        </div>
+      </div>
+      <p class="card-sub">Hacé clic en una fila para ver su historial de seguidores abajo.</p>
+      <div id="tracked-empty" class="empty-note">Todavía no agregaste ningún canal al seguimiento.</div>
+      <div id="tracked-content" style="display:none;overflow-x:auto;">
+        <table class="data-table" id="tracked-table">
+          <thead>
+            <tr>
+              <th>Plataforma</th>
+              <th>Canal</th>
+              <th class="num">Seguidores</th>
+              <th class="num">NER %</th>
+              <th>Tier</th>
+              <th>Último snapshot</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tracked-tbody"></tbody>
+        </table>
+      </div>
+      <div id="job-result" class="job-result"></div>
+    </div>
+
+    <div class="card" id="history-card" style="display:none;">
+      <h3 id="history-title">Historial de seguidores</h3>
+      <p class="card-sub" id="history-sub"></p>
+      <div id="chart-history"></div>
+    </div>
+  </section>
+
+  <footer>Channel Analytics Core · datos en modo mock si no hay credenciales de API cargadas en el backend</footer>
+</main>
+
+<div id="tooltip"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const API = "/api/v1";
+  const PLATFORM_COLOR = { youtube: "var(--series-youtube)", tiktok: "var(--series-tiktok)" };
+  const PLATFORM_LABEL = { youtube: "YouTube", tiktok: "TikTok" };
+  const TIER_ORDER = ["nano", "micro", "mid", "macro", "mega"];
+  const TIER_COLOR = { nano: "var(--tier-1)", micro: "var(--tier-2)", mid: "var(--tier-3)", macro: "var(--tier-4)", mega: "var(--tier-5)" };
+  // Texto oscuro para los pasos claros de la rampa (nano/micro) y blanco para
+  // los oscuros (mid/macro/mega) — un solo color de texto no da contraste
+  // suficiente en los dos extremos de la rampa a la vez.
+  const TIER_TEXT = { nano: "#0d366b", micro: "#0d1f3d", mid: "#ffffff", macro: "#ffffff", mega: "#ffffff" };
+  const TIER_LABEL = { nano: "Nano", micro: "Micro", mid: "Mid", macro: "Macro", mega: "Mega" };
+
+  const state = {
+    channels: [],
+    sortKey: "followers",
+    sortDir: "desc",
+    topics: [],   // { query, ts, summary: [...PlatformSummary] }
+    tracked: [],  // canales trackeados (seguimiento diario)
+    selectedTrackedId: null,
+  };
+
+  // ---------------------------------------------------------------------
+  // Utilidades
+  // ---------------------------------------------------------------------
+  function fmtCompact(n) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  }
+  function fmtInt(n) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return new Intl.NumberFormat("es-AR").format(Math.round(n));
+  }
+  function fmtPct(n, d) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return n.toFixed(d === undefined ? 2 : d) + "%";
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function iconGood() {
+    return '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15"/><path d="M5 8.2l2 2 4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  function iconWarn() {
+    return '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15"/><path d="M8 4.5v4.2M8 11.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  }
+  function statusBadge(status, text) {
+    const cls = status === "within" ? "good" : "warning";
+    const icon = status === "within" ? iconGood() : iconWarn();
+    return `<span class="status-badge ${cls}">${icon}${escapeHtml(text)}</span>`;
+  }
+
+  let tooltipEl;
+  function initTooltip() {
+    tooltipEl = document.getElementById("tooltip");
+    document.addEventListener("mousemove", (e) => {
+      if (tooltipEl.style.opacity === "1") {
+        tooltipEl.style.left = (e.clientX + 14) + "px";
+        tooltipEl.style.top = (e.clientY + 14) + "px";
+      }
+    });
+    document.addEventListener("mouseover", (e) => {
+      const t = e.target.closest("[data-tip]");
+      if (t) {
+        tooltipEl.textContent = t.getAttribute("data-tip");
+        tooltipEl.style.opacity = "1";
+      }
+    });
+    document.addEventListener("mouseout", (e) => {
+      const t = e.target.closest("[data-tip]");
+      if (t) tooltipEl.style.opacity = "0";
+    });
+  }
+
+  async function fetchJSON(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const body = await res.json(); detail = body.message || JSON.stringify(body); } catch (e) {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  function setBanner(kind, text) {
+    const el = document.getElementById("status-banner");
+    el.className = kind ? kind : "";
+    el.textContent = text || "";
+  }
+
+  // ---------------------------------------------------------------------
+  // Charts (SVG plano, sin librerías — ver skill de dataviz)
+  // ---------------------------------------------------------------------
+
+  // Bar con punta redondeada (4px) y base cuadrada, crece horizontalmente desde x0
+  function hBarPath(x0, y0, w, h, r) {
+    const rad = Math.min(r, w > 0 ? w : 0, h / 2);
+    if (w <= 0) return `M${x0},${y0} h0 v${h} h0 Z`;
+    if (rad <= 0.5) return `M${x0},${y0} h${w} v${h} h${-w} Z`;
+    const xEnd = x0 + w;
+    return `M${x0},${y0}
+            L${xEnd - rad},${y0}
+            A${rad},${rad} 0 0 1 ${xEnd},${y0 + rad}
+            L${xEnd},${y0 + h - rad}
+            A${rad},${rad} 0 0 1 ${xEnd - rad},${y0 + h}
+            L${x0},${y0 + h} Z`;
+  }
+  // Column con punta redondeada arriba, base cuadrada, crece hacia arriba desde yBase
+  function vBarPath(x0, yBase, w, h, r) {
+    const rad = Math.min(r, w / 2, h > 0 ? h : 0);
+    const yTop = yBase - h;
+    if (h <= 0) return `M${x0},${yBase} h${w} v0 h${-w} Z`;
+    if (rad <= 0.5) return `M${x0},${yBase} v${-h} h${w} v${h} Z`;
+    return `M${x0},${yBase}
+            L${x0},${yTop + rad}
+            A${rad},${rad} 0 0 1 ${x0 + rad},${yTop}
+            L${x0 + w - rad},${yTop}
+            A${rad},${rad} 0 0 1 ${x0 + w},${yTop + rad}
+            L${x0 + w},${yBase} Z`;
+  }
+
+  function renderLegend(container, items) {
+    container.innerHTML = items.map(it =>
+      `<span class="legend-item"><span class="legend-swatch" style="background:${it.color}"></span>${escapeHtml(it.label)}</span>`
+    ).join("");
+  }
+
+  // Grouped column chart: categories on x, N series.
+  // Las etiquetas de valor se dibujan en una pasada separada DESPUÉS de todas
+  // las barras (para que una barra vecina nunca tape la etiqueta de otra), y
+  // se suprimen para todo el grupo si dos etiquetas quedarían demasiado cerca
+  // verticalmente (colisión) — en ese caso el valor exacto queda en el tooltip.
+  function renderGroupedColumns(el, categories, series, opts) {
+    opts = opts || {};
+    const isPct = !!opts.percent;
+    const W = 640, H = 200, padL = 36, padR = 10, padT = 10, padB = 26;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const maxVal = Math.max(1, ...series.flatMap(s => s.values));
+    const niceMax = niceCeil(maxVal);
+    const groupW = plotW / categories.length;
+    const barGap = 2, barW = Math.min(24, (groupW - 10 - (series.length - 1) * barGap) / series.length);
+    let bars = "", catLabels = "", gridLines = "";
+    const labelCandidates = []; // { x, yTop, text }, agrupados por categoría
+
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const v = (niceMax / ticks) * i;
+      const y = padT + plotH - (v / niceMax) * plotH;
+      gridLines += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}"/>`;
+      gridLines += `<text class="axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${isPct ? fmtPct(v, 1) : fmtCompact(v)}</text>`;
+    }
+
+    categories.forEach((cat, ci) => {
+      const groupX = padL + ci * groupW + (groupW - (barW * series.length + barGap * (series.length - 1))) / 2;
+      const yBase = padT + plotH;
+      const groupLabels = [];
+      series.forEach((s, si) => {
+        const val = s.values[ci] || 0;
+        const h = niceMax > 0 ? (val / niceMax) * plotH : 0;
+        const x = groupX + si * (barW + barGap);
+        const valText = isPct ? fmtPct(val, 1) : fmtCompact(val);
+        bars += `<path d="${vBarPath(x, yBase, barW, h, 4)}" fill="${s.color}" data-tip="${escapeHtml(s.label)} · ${escapeHtml(cat.label)}: ${valText}"></path>`;
+        if (val > 0 && h > 14) {
+          groupLabels.push({ x: x + barW / 2, yTop: yBase - h - 4, text: valText });
+        }
+      });
+      // Colisión: si dos etiquetas del mismo grupo caen a menos de 13px de
+      // altura entre sí, se descartan todas las de ese grupo (queda el tooltip).
+      let collides = false;
+      for (let a = 0; a < groupLabels.length && !collides; a++) {
+        for (let b = a + 1; b < groupLabels.length; b++) {
+          if (Math.abs(groupLabels[a].yTop - groupLabels[b].yTop) < 13) { collides = true; break; }
+        }
+      }
+      if (!collides) labelCandidates.push(...groupLabels);
+
+      catLabels += `<text class="cat-label" x="${groupX + (barW * series.length + barGap * (series.length - 1)) / 2}" y="${padT + plotH + 16}" text-anchor="middle">${escapeHtml(cat.label)}</text>`;
+    });
+
+    const valueLabels = labelCandidates.map(l =>
+      `<text class="value-label" x="${l.x}" y="${l.yTop}" text-anchor="middle">${l.text}</text>`
+    ).join("");
+
+    el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${gridLines}
+      <line class="baseline-line" x1="${padL}" x2="${W - padR}" y1="${padT + plotH}" y2="${padT + plotH}"/>
+      ${bars}${catLabels}${valueLabels}
+    </svg>`;
+  }
+
+  function niceCeil(v) {
+    if (v <= 0) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    const norm = v / mag;
+    let nice = 1;
+    if (norm > 5) nice = 10; else if (norm > 2) nice = 5; else if (norm > 1) nice = 2;
+    return nice * mag;
+  }
+
+  // Range-bar ("box plot" simplificado): min–max track, p10–p90, p25–p75 (IQR), marca de mediana.
+  // Cada fila usa su PROPIA escala (min–max de esa fila), no una escala
+  // compartida: dos plataformas pueden diferir en un orden de magnitud (p.ej.
+  // ER de YouTube vs TikTok) y una escala común dejaría una de las dos
+  // reducida a una línea invisible. La magnitud absoluta ya se puede comparar
+  // vía las tarjetas KPI y las etiquetas de valor; este gráfico muestra forma
+  // (dispersión/asimetría) de cada distribución, no su magnitud relativa.
+  function renderRangeBars(el, rows, opts) {
+    opts = opts || {};
+    const scale = opts.scale || "linear";
+    const W = 640, rowH = 46, padL = 90, padR = 60, padT = 8;
+    const H = padT * 2 + rows.length * rowH;
+    const plotW = W - padL - padR;
+
+    function scaleXFor(row) {
+      const rowMax = Math.max(row.max, 1e-9);
+      const rowMin = Math.max(row.min, 0);
+      return function (v) {
+        const vv = Math.max(v, 0);
+        if (scale === "log") {
+          const lo = Math.log10(1), hi = Math.log10(rowMax + 1);
+          const x = Math.log10(vv + 1);
+          return padL + ((x - lo) / (hi - lo || 1)) * plotW;
+        }
+        return padL + ((vv - rowMin) / ((rowMax - rowMin) || 1)) * plotW;
+      };
+    }
+
+    let body = "";
+    rows.forEach((r, i) => {
+      const y = padT + i * rowH + rowH / 2;
+      const trackY = y - 3, trackH = 6;
+      const iqrY = y - 7, iqrH = 14;
+      const scaleX = scaleXFor(r);
+      const xMin = scaleX(r.min), xMax = scaleX(r.max);
+      const x10 = scaleX(r.p10), x90 = scaleX(r.p90);
+      const x25 = scaleX(r.p25), x75 = scaleX(r.p75);
+      const xMed = scaleX(r.median);
+
+      body += `<line x1="${xMin}" x2="${xMax}" y1="${y}" y2="${y}" stroke="var(--gridline)" stroke-width="2"/>`;
+      body += `<path d="${hBarPath(x10, trackY, Math.max(x90 - x10, 1), trackH, 3)}" fill="${r.color}" opacity="0.35" data-tip="P10–P90: ${r.fmt(r.p10)} – ${r.fmt(r.p90)}"></path>`;
+      body += `<path d="${hBarPath(x25, iqrY, Math.max(x75 - x25, 1), iqrH, 4)}" fill="${r.color}" data-tip="IQR (P25–P75): ${r.fmt(r.p25)} – ${r.fmt(r.p75)}"></path>`;
+      body += `<line x1="${xMed}" x2="${xMed}" y1="${y - 12}" y2="${y + 12}" stroke="var(--text-primary)" stroke-width="2"/>`;
+      body += `<text class="value-label" x="${xMed}" y="${y - 16}" text-anchor="middle">${r.fmt(r.median)}</text>`;
+      body += `<text class="cat-label" x="${xMin}" y="${y + 20}" font-size="9" fill="var(--text-muted)">${r.fmt(r.min)}</text>`;
+      body += `<text class="cat-label" x="${xMax}" y="${y + 20}" font-size="9" fill="var(--text-muted)" text-anchor="end">${r.fmt(r.max)}</text>`;
+      body += `<text class="cat-label" x="10" y="${y + 4}" font-weight="700">${escapeHtml(r.label)}</text>`;
+    });
+
+    el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+  }
+
+  function renderGiniChart(el, rows) {
+    const W = 640, rowH = 44, padL = 90, padR = 50, padT = 8;
+    const H = padT * 2 + rows.length * rowH;
+    const plotW = W - padL - padR;
+    let body = "";
+    rows.forEach((r, i) => {
+      const y = padT + i * rowH + rowH / 2 - 7;
+      const w = r.value * plotW;
+      body += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y - 2}" y2="${y - 2}"/>`;
+      body += `<path d="${hBarPath(padL, y, w, 14, 4)}" fill="${r.color}" data-tip="${escapeHtml(r.label)} · Gini: ${r.value.toFixed(3)} · Top 10% concentra ${(r.top10 * 100).toFixed(0)}% · Pareto α≈${r.alpha ? r.alpha.toFixed(2) : '—'}"></path>`;
+      body += `<text class="value-label" x="${padL + w + 6}" y="${y + 10}">${r.value.toFixed(3)}</text>`;
+      body += `<text class="cat-label" x="10" y="${y + 10}" font-weight="700">${escapeHtml(r.label)}</text>`;
+    });
+    el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+  }
+
+  // Barra divergente centrada en 0, rango [-1, 1] (Spearman rho)
+  function divergingBarSVG(value, color) {
+    const W = 220, H = 20, mid = W / 2;
+    const w = Math.abs(value) * (W / 2 - 4);
+    const x = value >= 0 ? mid : mid - w;
+    const fill = value >= 0 ? "var(--diverging-pos)" : "var(--diverging-neg)";
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      <line x1="${mid}" x2="${mid}" y1="0" y2="${H}" stroke="var(--baseline)" stroke-width="1"/>
+      <rect x="${x}" y="4" width="${Math.max(w,1.5)}" height="12" rx="3" fill="${fill}"></rect>
+    </svg>`;
+  }
+
+  function renderMeter(el, value0to1, color) {
+    const pct = Math.max(0, Math.min(1, value0to1)) * 100;
+    el.innerHTML = `<div style="background:${color};opacity:0.18;border-radius:999px;height:10px;width:100%;position:relative;overflow:hidden;">
+      <div style="background:${color};height:100%;width:${pct}%;border-radius:999px;"></div>
+    </div>`;
+  }
+
+  // Línea de tendencia simple (historial de seguidores por día). Puntos con
+  // tooltip individual + etiquetas de valor solo en el primer y último punto
+  // (para no saturar cuando hay muchos días) — el resto queda accesible vía
+  // hover, siguiendo el mismo criterio anti-colisión que renderGroupedColumns.
+  function renderLineChart(el, points, opts) {
+    opts = opts || {};
+    const color = opts.color || "var(--series-youtube)";
+    const W = 640, H = 200, padL = 56, padR = 16, padT = 16, padB = 26;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+
+    if (!points.length) {
+      el.innerHTML = '<p class="empty-note">Sin snapshots todavía — corré el job diario o esperá a mañana.</p>';
+      return;
+    }
+    if (points.length === 1) {
+      el.innerHTML = `<p class="empty-note">Un solo snapshot (${escapeHtml(points[0].label)}: ${fmtCompact(points[0].value)} seguidores). Con más días acá va a aparecer la curva de tendencia.</p>`;
+      return;
+    }
+
+    const values = points.map(p => p.value);
+    const rawMin = Math.min(...values), rawMax = Math.max(...values);
+    // Si la serie es plana (mismo valor todos los días), forzar un rango
+    // mínimo visible en vez de dividir por cero.
+    const pad = (rawMax - rawMin) * 0.15 || Math.max(rawMax * 0.05, 1);
+    const yMin = Math.max(0, rawMin - pad), yMax = rawMax + pad;
+
+    const xFor = (i) => padL + (points.length === 1 ? 0 : (i / (points.length - 1)) * plotW);
+    const yFor = (v) => padT + plotH - ((v - yMin) / ((yMax - yMin) || 1)) * plotH;
+
+    const ticks = 4;
+    let gridLines = "";
+    for (let i = 0; i <= ticks; i++) {
+      const v = yMin + ((yMax - yMin) / ticks) * i;
+      const y = yFor(v);
+      gridLines += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}"/>`;
+      gridLines += `<text class="axis-label" x="${padL - 6}" y="${y + 3}" text-anchor="end">${fmtCompact(v)}</text>`;
+    }
+
+    const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${xFor(i)},${yFor(p.value)}`).join(" ");
+    const areaPath = `${linePath} L${xFor(points.length - 1)},${padT + plotH} L${xFor(0)},${padT + plotH} Z`;
+
+    let dots = "";
+    points.forEach((p, i) => {
+      const x = xFor(i), y = yFor(p.value);
+      dots += `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}" data-tip="${escapeHtml(p.label)}: ${fmtInt(p.value)} seguidores"></circle>`;
+    });
+
+    // Etiquetas de eje X: primer día, último día y, si hay espacio, el del medio.
+    const xLabelIdx = points.length > 2 ? [0, Math.floor((points.length - 1) / 2), points.length - 1] : [0, points.length - 1];
+    const xLabels = [...new Set(xLabelIdx)].map(i =>
+      `<text class="cat-label" x="${xFor(i)}" y="${padT + plotH + 16}" text-anchor="middle">${escapeHtml(points[i].label)}</text>`
+    ).join("");
+
+    const firstLabel = `<text class="value-label" x="${xFor(0)}" y="${yFor(points[0].value) - 8}" text-anchor="start">${fmtCompact(points[0].value)}</text>`;
+    const lastLabel = `<text class="value-label" x="${xFor(points.length - 1)}" y="${yFor(points[points.length - 1].value) - 8}" text-anchor="end">${fmtCompact(points[points.length - 1].value)}</text>`;
+
+    el.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${gridLines}
+      <line class="baseline-line" x1="${padL}" x2="${W - padR}" y1="${padT + plotH}" y2="${padT + plotH}"/>
+      <path d="${areaPath}" fill="${color}" opacity="0.10" stroke="none"></path>
+      <path d="${linePath}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>
+      ${dots}${xLabels}${firstLabel}${lastLabel}
+    </svg>`;
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: KPI row
+  // ---------------------------------------------------------------------
+  function renderKPIs(summaries) {
+    const el = document.getElementById("kpi-row");
+    el.innerHTML = summaries.map(s => {
+      const label = PLATFORM_LABEL[s.platform] || s.platform;
+      let benchHtml = "";
+      if (s.benchmark) {
+        const b = s.benchmark;
+        const rangeTxt = `${b.benchmark_min_pct}–${b.benchmark_max_pct}%`;
+        const text = b.status === "within" ? `Dentro del rango (${rangeTxt})`
+                    : b.status === "below" ? `Por debajo del rango (${rangeTxt})`
+                    : `Por encima del rango (${rangeTxt})`;
+        benchHtml = statusBadge(b.status, text);
+      }
+      return `
+        <div class="stat-tile">
+          <div class="stat-label"><span class="dot ${s.platform}"></span> ${escapeHtml(label)} · canales</div>
+          <div class="stat-value">${fmtInt(s.channel_count)}</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-label">Seguidores totales</div>
+          <div class="stat-value">${fmtCompact(s.total_followers)}</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-label">Vistas totales</div>
+          <div class="stat-value">${fmtCompact(s.total_views)}</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-label">ER promedio (NER)</div>
+          <div class="stat-value">${fmtPct(s.avg_normalized_er)}</div>
+          ${benchHtml}
+        </div>`;
+    }).join("");
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: Resumen tab (usa /analyze summary + /analytics/overview)
+  // ---------------------------------------------------------------------
+  function renderResumen(summaries, overview) {
+    document.getElementById("resumen-empty").style.display = "none";
+    document.getElementById("resumen-content").style.display = "block";
+
+    renderKPIs(summaries);
+
+    renderLegend(document.getElementById("legend-platform"), overview.platforms.map(p => ({
+      color: PLATFORM_COLOR[p.platform], label: PLATFORM_LABEL[p.platform] || p.platform
+    })));
+
+    // Tiers
+    const tierSeries = overview.platforms.map(p => ({
+      label: PLATFORM_LABEL[p.platform] || p.platform,
+      color: PLATFORM_COLOR[p.platform],
+      values: TIER_ORDER.map(t => (p.tier_breakdown && p.tier_breakdown[t]) || 0),
+    }));
+    renderGroupedColumns(document.getElementById("chart-tiers"), TIER_ORDER.map(t => ({ label: TIER_LABEL[t] })), tierSeries);
+
+    // Gini
+    const giniRows = overview.platforms.filter(p => p.inequality).map(p => ({
+      label: PLATFORM_LABEL[p.platform] || p.platform,
+      color: PLATFORM_COLOR[p.platform],
+      value: p.inequality.gini_followers,
+      top10: p.inequality.top_10_pct_share,
+      alpha: p.inequality.pareto_alpha,
+    }));
+    if (giniRows.length) renderGiniChart(document.getElementById("chart-gini"), giniRows);
+    else document.getElementById("chart-gini").innerHTML = '<p class="empty-note">Sin suficientes canales para calcular Gini.</p>';
+
+    // Distribution: followers (log scale) & ER (linear)
+    const followerRows = overview.platforms.filter(p => p.followers).map(p => ({
+      label: PLATFORM_LABEL[p.platform] || p.platform,
+      color: PLATFORM_COLOR[p.platform],
+      ...p.followers,
+      fmt: (v) => fmtCompact(v),
+    }));
+    if (followerRows.length) renderRangeBars(document.getElementById("chart-dist-followers"), followerRows, { scale: "log" });
+    else document.getElementById("chart-dist-followers").innerHTML = '<p class="empty-note">Sin suficientes canales.</p>';
+
+    const erRows = overview.platforms.filter(p => p.normalized_er).map(p => ({
+      label: PLATFORM_LABEL[p.platform] || p.platform,
+      color: PLATFORM_COLOR[p.platform],
+      ...p.normalized_er,
+      fmt: (v) => fmtPct(v, 2),
+    }));
+    if (erRows.length) renderRangeBars(document.getElementById("chart-dist-er"), erRows, { scale: "linear" });
+    else document.getElementById("chart-dist-er").innerHTML = '<p class="empty-note">Sin suficientes canales.</p>';
+
+    // Correlaciones
+    ["youtube", "tiktok"].forEach(platform => {
+      const cardEl = document.getElementById(`card-corr-${platform}`);
+      const p = overview.platforms.find(x => x.platform === platform);
+      const color = PLATFORM_COLOR[platform];
+      let html = `<div class="platform-heading"><span class="dot ${platform}"></span>${PLATFORM_LABEL[platform]} · Correlaciones</div>`;
+      if (!p || !p.correlations || !p.correlations.length) {
+        html += '<p class="empty-note">Sin suficientes canales para correlacionar.</p>';
+      } else {
+        html += p.correlations.map(c => `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--gridline);">
+            <div style="font-size:12px;color:var(--text-secondary);max-width:150px;">${escapeHtml(c.variable_x)} vs ${escapeHtml(c.variable_y)}</div>
+            ${divergingBarSVG(c.spearman_rho, color)}
+            <div style="font-size:12px;font-weight:700;width:56px;text-align:right;">${c.spearman_rho.toFixed(2)}</div>
+          </div>`).join("");
+        html += `<p class="card-sub" style="margin-top:10px;">${p.correlations.map(c => escapeHtml(c.interpretation)).join(" · ")}</p>`;
+      }
+      if (p && p.anomalies && p.anomalies.length) {
+        html += `<div class="anomaly-flag" style="margin-top:8px;">⚠ ${p.anomalies.length} canal(es) con métricas potencialmente infladas — ver pestaña "Por canal"</div>`;
+      }
+      cardEl.innerHTML = html;
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: Canales tab
+  // ---------------------------------------------------------------------
+  function renderChannelsTable() {
+    const filterVal = (document.getElementById("channel-filter").value || "").toLowerCase();
+    let rows = state.channels.filter(c =>
+      !filterVal || c.name.toLowerCase().includes(filterVal) || (c.handle || "").toLowerCase().includes(filterVal)
+    );
+    rows = rows.slice().sort((a, b) => {
+      let av = a[state.sortKey], bv = b[state.sortKey];
+      if (typeof av === "string") { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+      if (av < bv) return state.sortDir === "asc" ? -1 : 1;
+      if (av > bv) return state.sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    document.getElementById("channel-count-label").textContent = `${rows.length} canal(es)`;
+
+    document.getElementById("channels-tbody").innerHTML = rows.map(c => {
+      const tierChip = `<span class="tier-chip" style="background:${TIER_COLOR[c.tier]};color:${TIER_TEXT[c.tier] || '#ffffff'}">${TIER_LABEL[c.tier] || c.tier}</span>`;
+      const anomaly = c._anomalyReason ? `<span class="anomaly-flag" data-tip="${escapeHtml(c._anomalyReason)}">⚠ revisar</span>` : "";
+      const nameCell = c.url
+        ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.name)}</a>`
+        : escapeHtml(c.name);
+      return `<tr>
+        <td><span class="dot ${c.platform}"></span> ${PLATFORM_LABEL[c.platform] || c.platform}</td>
+        <td>${nameCell}<div class="card-sub" style="margin:0;">${escapeHtml(c.handle || "")}</div></td>
+        <td>${tierChip}</td>
+        <td class="num">${fmtCompact(c.followers)}</td>
+        <td class="num">${fmtCompact(c.total_views)}</td>
+        <td class="num">${fmtInt(c.total_posts)}</td>
+        <td class="num">${fmtPct(c.normalized_er)}</td>
+        <td>${anomaly}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="8" class="empty-note">Sin resultados</td></tr>`;
+  }
+
+  function initChannelsTableEvents() {
+    document.querySelectorAll("#channels-table th[data-key]").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.getAttribute("data-key");
+        if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+        else { state.sortKey = key; state.sortDir = "desc"; }
+        renderChannelsTable();
+      });
+    });
+    document.getElementById("channel-filter").addEventListener("input", renderChannelsTable);
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: Temáticas tab
+  // ---------------------------------------------------------------------
+  function renderTopics() {
+    const empty = document.getElementById("topics-empty");
+    const content = document.getElementById("topics-content");
+    if (!state.topics.length) { empty.style.display = "block"; content.style.display = "none"; return; }
+    empty.style.display = "none";
+    content.style.display = "block";
+
+    document.getElementById("topic-list").innerHTML = state.topics.map((t, i) => `
+      <div class="topic-row">
+        <div>
+          <div class="topic-name">${escapeHtml(t.query)}</div>
+          <div class="topic-meta">${new Date(t.ts).toLocaleTimeString("es-AR")}</div>
+        </div>
+        <button class="remove" data-idx="${i}" title="Quitar">✕</button>
+      </div>`).join("");
+
+    document.querySelectorAll("#topic-list .remove").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.topics.splice(Number(btn.getAttribute("data-idx")), 1);
+        renderTopics();
+      });
+    });
+
+    const categories = state.topics.map(t => ({ label: t.query.length > 14 ? t.query.slice(0, 13) + "…" : t.query }));
+    const followerSeries = ["youtube", "tiktok"].map(platform => ({
+      label: PLATFORM_LABEL[platform], color: PLATFORM_COLOR[platform],
+      values: state.topics.map(t => {
+        const s = t.summary.find(x => x.platform === platform);
+        return s ? s.total_followers : 0;
+      }),
+    }));
+    const erSeries = ["youtube", "tiktok"].map(platform => ({
+      label: PLATFORM_LABEL[platform], color: PLATFORM_COLOR[platform],
+      values: state.topics.map(t => {
+        const s = t.summary.find(x => x.platform === platform);
+        return s ? s.avg_normalized_er : 0;
+      }),
+    }));
+
+    document.getElementById("chart-topics-followers").innerHTML = '<h3 style="font-size:13px;margin:0 0 8px;">Seguidores totales por temática</h3>';
+    const fEl = document.createElement("div");
+    document.getElementById("chart-topics-followers").appendChild(fEl);
+    renderGroupedColumns(fEl, categories, followerSeries);
+
+    document.getElementById("chart-topics-er").innerHTML = '<h3 style="font-size:13px;margin:0 0 8px;">ER promedio (NER %) por temática</h3>';
+    const eEl = document.createElement("div");
+    document.getElementById("chart-topics-er").appendChild(eEl);
+    renderGroupedColumns(eEl, categories, erSeries, { percent: true });
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: Benchmarks tab
+  // ---------------------------------------------------------------------
+  async function loadBenchmarks() {
+    try {
+      const data = await fetchJSON(`${API}/analytics/benchmarks?platform=all`);
+      document.getElementById("bench-grid").innerHTML = data.benchmarks.map(b => `
+        <div class="card bench-card" style="margin-bottom:0;">
+          <div class="platform-heading"><span class="dot ${b.platform}"></span>${PLATFORM_LABEL[b.platform] || b.platform}</div>
+          <div class="bench-range">${b.engagement_benchmark_min_pct}–${b.engagement_benchmark_max_pct}%</div>
+          <div class="card-sub" style="margin-top:2px;">Rango típico de Engagement Rate</div>
+          <dl>
+            <dt>Fórmula</dt><dd>${escapeHtml(b.engagement_formula)}</dd>
+            <dt>Métrica de alcance primaria</dt><dd>${escapeHtml(b.primary_reach_metric)}</dd>
+            <dt>Métrica de retención</dt><dd>${escapeHtml(b.retention_metric)}</dd>
+            <dt>Frecuencia de publicación típica</dt><dd>${escapeHtml(b.typical_posting_frequency)}</dd>
+            <dt>Vida útil del contenido</dt><dd>${escapeHtml(b.content_lifespan)}</dd>
+            <dt>Riesgo de sesgo en métricas crudas</dt><dd>${escapeHtml(b.raw_metric_bias_risk)}</dd>
+          </dl>
+        </div>`).join("");
+    } catch (e) {
+      document.getElementById("bench-grid").innerHTML = `<p class="empty-note">No se pudo cargar: ${escapeHtml(e.message)}</p>`;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: Seguimiento diario tab (canales trackeados + worker)
+  // ---------------------------------------------------------------------
+  function fmtDate(d) {
+    if (!d) return "—";
+    // "2026-08-21" -> "21/08"
+    const parts = String(d).split("-");
+    return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
+  }
+  function fmtDateTimeShort(iso) {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+    catch (e) { return iso; }
+  }
+
+  async function loadTrackedChannels() {
+    const includeInactive = document.getElementById("track-show-inactive").checked;
+    try {
+      const data = await fetchJSON(`${API}/tracking/channels?include_inactive=${includeInactive}`);
+      state.tracked = data.channels;
+      renderTrackedTable();
+    } catch (e) {
+      document.getElementById("job-result").innerHTML = `<span style="color:var(--status-critical)">No se pudo cargar la lista de canales trackeados: ${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  function renderTrackedTable() {
+    const empty = document.getElementById("tracked-empty");
+    const content = document.getElementById("tracked-content");
+    if (!state.tracked.length) {
+      empty.style.display = "block";
+      content.style.display = "none";
+      return;
+    }
+    empty.style.display = "none";
+    content.style.display = "block";
+
+    document.getElementById("tracked-tbody").innerHTML = state.tracked.map(tc => {
+      const snap = tc.latest_snapshot;
+      const tierChip = snap
+        ? `<span class="tier-chip" style="background:${TIER_COLOR[snap.tier]};color:${TIER_TEXT[snap.tier] || '#ffffff'}">${TIER_LABEL[snap.tier] || snap.tier}</span>`
+        : "—";
+      const nameLabel = tc.label ? `${escapeHtml(tc.label)} <span class="card-sub" style="margin:0;">(${escapeHtml(tc.name || tc.handle || tc.native_id)})</span>` : escapeHtml(tc.name || tc.handle || tc.native_id);
+      const statusHtml = tc.active
+        ? `<span class="status-badge good">${iconGood()}Activo</span>`
+        : `<span class="status-badge warning">${iconWarn()}De baja</span>`;
+      const selected = state.selectedTrackedId === tc.id ? "selected-row" : "";
+      const actions = tc.active
+        ? `<button type="button" class="link-action danger" data-action="remove" data-id="${tc.id}">Dar de baja</button>`
+        : "";
+      return `<tr class="${selected}" data-selectable data-id="${tc.id}">
+        <td><span class="dot ${tc.platform}"></span> ${PLATFORM_LABEL[tc.platform] || tc.platform}</td>
+        <td>${nameLabel}<div class="card-sub" style="margin:0;">${escapeHtml(tc.handle || tc.native_id)}</div></td>
+        <td class="num">${snap ? fmtCompact(snap.followers) : "—"}</td>
+        <td class="num">${snap ? fmtPct(snap.normalized_er) : "—"}</td>
+        <td>${tierChip}</td>
+        <td>${snap ? fmtDate(snap.snapshot_date) : "Sin snapshot aún"}</td>
+        <td>${statusHtml}</td>
+        <td class="inline-actions">${actions}</td>
+      </tr>`;
+    }).join("");
+
+    document.querySelectorAll("#tracked-tbody tr[data-selectable]").forEach(tr => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("[data-action]")) return; // los botones de acción no seleccionan la fila
+        selectTrackedChannel(Number(tr.getAttribute("data-id")));
+      });
+    });
+    document.querySelectorAll('#tracked-tbody [data-action="remove"]').forEach(btn => {
+      btn.addEventListener("click", () => removeTrackedChannel(Number(btn.getAttribute("data-id"))));
+    });
+  }
+
+  async function selectTrackedChannel(id) {
+    state.selectedTrackedId = id;
+    renderTrackedTable();
+    const tc = state.tracked.find(t => t.id === id);
+    const card = document.getElementById("history-card");
+    card.style.display = "block";
+    document.getElementById("history-title").textContent =
+      `Historial de seguidores — ${tc ? (tc.label || tc.name || tc.handle || tc.native_id) : id}`;
+    document.getElementById("history-sub").textContent = "Cargando…";
+    document.getElementById("chart-history").innerHTML = "";
+    try {
+      const data = await fetchJSON(`${API}/tracking/channels/${id}/history?days=90`);
+      const points = data.snapshots.map(s => ({ label: fmtDate(s.snapshot_date), value: s.followers }));
+      document.getElementById("history-sub").textContent =
+        `${data.snapshots.length} snapshot(s) en los últimos 90 días · fuente: /api/v1/tracking/channels/${id}/history`;
+      renderLineChart(document.getElementById("chart-history"), points, { color: PLATFORM_COLOR[tc ? tc.platform : "youtube"] });
+    } catch (e) {
+      document.getElementById("history-sub").textContent = "";
+      document.getElementById("chart-history").innerHTML = `<p class="empty-note">No se pudo cargar el historial: ${escapeHtml(e.message)}</p>`;
+    }
+  }
+
+  async function addTrackedChannel(platform, identifier, label) {
+    const statusEl = document.getElementById("track-form-status");
+    const btn = document.getElementById("track-add-btn");
+    btn.disabled = true;
+    statusEl.textContent = "Agregando…";
+    statusEl.style.color = "var(--text-muted)";
+    try {
+      await fetchJSON(`${API}/tracking/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, identifier, label: label || null }),
+      });
+      statusEl.textContent = `Canal agregado — ya tiene su primer snapshot.`;
+      statusEl.style.color = "var(--status-good)";
+      document.getElementById("track-identifier").value = "";
+      document.getElementById("track-label").value = "";
+      await loadTrackedChannels();
+    } catch (e) {
+      statusEl.textContent = "No se pudo agregar: " + e.message;
+      statusEl.style.color = "var(--status-critical)";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function removeTrackedChannel(id) {
+    try {
+      await fetchJSON(`${API}/tracking/channels/${id}`, { method: "DELETE" });
+      if (state.selectedTrackedId === id) {
+        state.selectedTrackedId = null;
+        document.getElementById("history-card").style.display = "none";
+      }
+      await loadTrackedChannels();
+    } catch (e) {
+      document.getElementById("job-result").innerHTML = `<span style="color:var(--status-critical)">No se pudo dar de baja: ${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  async function runDailyJobNow() {
+    const btn = document.getElementById("run-job-btn");
+    const resultEl = document.getElementById("job-result");
+    btn.disabled = true;
+    resultEl.textContent = "Corriendo el job diario…";
+    try {
+      const data = await fetchJSON(`${API}/tracking/run-daily-job`, { method: "POST" });
+      let html = `✓ ${fmtInt(data.channels_evaluated)} canal(es) evaluados · ${fmtInt(data.snapshots_created)} snapshot(s) nuevo(s) · ${fmtInt(data.snapshots_updated)} actualizado(s)`;
+      if (data.errors && data.errors.length) {
+        html += `<div class="job-errors">${data.errors.map(escapeHtml).join("<br/>")}</div>`;
+      }
+      resultEl.innerHTML = html;
+      await loadTrackedChannels();
+      if (state.selectedTrackedId) await selectTrackedChannel(state.selectedTrackedId);
+    } catch (e) {
+      resultEl.innerHTML = `<span style="color:var(--status-critical)">Error corriendo el job: ${escapeHtml(e.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function initTrackingTab() {
+    document.getElementById("track-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const platform = document.getElementById("track-platform").value;
+      const identifier = document.getElementById("track-identifier").value.trim();
+      const label = document.getElementById("track-label").value.trim();
+      if (!identifier) return;
+      addTrackedChannel(platform, identifier, label);
+    });
+    document.getElementById("run-job-btn").addEventListener("click", runDailyJobNow);
+    document.getElementById("track-show-inactive").addEventListener("change", loadTrackedChannels);
+  }
+
+  // ---------------------------------------------------------------------
+  // Búsqueda principal
+  // ---------------------------------------------------------------------
+  async function runSearch(query, platforms, limit) {
+    setBanner("loading", `Buscando "${query}"…`);
+    document.getElementById("search-btn").disabled = true;
+    try {
+      const [analyzeRes, overviewRes] = await Promise.all([
+        fetchJSON(`${API}/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, platforms, limit }),
+        }),
+        fetchJSON(`${API}/analytics/overview?query=${encodeURIComponent(query)}&limit=${limit}`),
+      ]);
+
+      // Cruzar anomalías detectadas con la lista de canales
+      const anomalyMap = {};
+      overviewRes.platforms.forEach(p => (p.anomalies || []).forEach(a => { anomalyMap[a.universal_id] = a.reason; }));
+      state.channels = analyzeRes.channels.map(c => ({ ...c, _anomalyReason: anomalyMap[c.universal_id] || null }));
+
+      renderResumen(analyzeRes.summary_by_platform, overviewRes);
+
+      document.getElementById("canales-empty").style.display = "none";
+      document.getElementById("canales-content").style.display = "block";
+      renderChannelsTable();
+
+      state.topics.unshift({ query, ts: Date.now(), summary: analyzeRes.summary_by_platform });
+      if (state.topics.length > 12) state.topics.pop();
+      renderTopics();
+
+      const total = analyzeRes.channels.length;
+      setBanner(total ? "" : "empty", total ? "" : `No se encontraron canales para "${query}".`);
+    } catch (e) {
+      setBanner("error", "Error: " + e.message);
+    } finally {
+      document.getElementById("search-btn").disabled = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------
+  function initTabs() {
+    document.querySelectorAll("nav.tabs button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(`tab-${btn.getAttribute("data-tab")}`).classList.add("active");
+      });
+    });
+  }
+
+  function initTheme() {
+    const saved = localStorage.getItem("cac_theme");
+    if (saved) document.documentElement.setAttribute("data-theme", saved);
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      const current = document.documentElement.getAttribute("data-theme") ||
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      const next = current === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("cac_theme", next);
+    });
+  }
+
+  function initForm() {
+    document.getElementById("search-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const query = document.getElementById("query-input").value.trim();
+      if (!query) return;
+      const platforms = Array.from(document.querySelectorAll(".platform-check:checked")).map(el => el.value);
+      if (!platforms.length) { setBanner("error", "Elegí al menos una plataforma."); return; }
+      const limit = Math.max(4, Math.min(100, parseInt(document.getElementById("limit-input").value, 10) || 25));
+      runSearch(query, platforms, limit);
+    });
+  }
+
+  initTooltip();
+  initTabs();
+  initTheme();
+  initForm();
+  initChannelsTableEvents();
+  initTrackingTab();
+  loadBenchmarks();
+  loadTrackedChannels();
+})();
+</script>
+</body>
+</html>
