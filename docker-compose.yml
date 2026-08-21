@@ -1,0 +1,29 @@
+services:
+  api:
+    build: .
+    container_name: channel-analytics-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app  # hot-reload de código en desarrollo
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # Descomentar cuando se agregue la capa de persistencia
+  # (dim_channels + fact_channel_metrics_daily) descripta en el README.
+  # db:
+  #   image: postgres:16-alpine
+  #   container_name: channel-analytics-db
+  #   environment:
+  #     POSTGRES_USER: analytics
+  #     POSTGRES_PASSWORD: analytics
+  #     POSTGRES_DB: channel_analytics
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+
+# volumes:
+#   pgdata:
