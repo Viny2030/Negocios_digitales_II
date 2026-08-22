@@ -12,6 +12,8 @@ cuota que iterar `search.list` por canal (ver "Límites de Ingesta" en el
 diseño). Con 10.000 unidades/día se pueden resolver hasta 100 búsquedas
 y cientos de miles de lecturas de canal.
 """
+import asyncio
+
 import httpx
 
 from app.core.config import get_settings
@@ -21,23 +23,32 @@ from app.services.collectors.base import BaseCollector, RawChannelData
 
 settings = get_settings()
 
-# IDs de categoría de YouTube (`videoCategoryId`) usados por `discover()`
-# para armar una foto de "todos los temas" sin que el usuario tenga que
-# elegir un tema puntual. Cubren los géneros más disímiles a propósito
-# (música, gaming, noticias, ciencia/tecnología, etc.) para maximizar la
+# IDs de categoría de YouTube (`videoCategoryId`) usados por `discover()` /
+# `discover_by_category()` para armar una foto de "todos los temas" sin que
+# el usuario tenga que elegir una categoría puntual. Se dejan afuera las
+# categorías de género de películas (30-44: Action/Adventure, Classics,
+# Horror, etc.) porque YouTube no publica un "mostPopular" real para ellas
+# en la inmensa mayoría de las regiones (devuelven vacío o 404) — el resto
+# cubre los géneros de canal más disímiles a propósito, para maximizar la
 # diversidad de nichos en una sola pasada.
-DISCOVER_CATEGORY_IDS: list[str] = [
-    "10",  # Música
-    "20",  # Gaming
-    "24",  # Entretenimiento
-    "25",  # Noticias y política
-    "17",  # Deportes
-    "28",  # Ciencia y tecnología
-    "27",  # Educación
-    "23",  # Comedia
-    "26",  # Estilo de vida (Howto & Style)
-    "1",   # Cine y animación
-]
+DISCOVER_CATEGORY_LABELS: dict[str, str] = {
+    "1": "Cine y animación",
+    "2": "Autos y vehículos",
+    "10": "Música",
+    "15": "Mascotas y animales",
+    "17": "Deportes",
+    "19": "Viajes y eventos",
+    "20": "Gaming",
+    "22": "Blogs (People & Blogs)",
+    "23": "Comedia",
+    "24": "Entretenimiento",
+    "25": "Noticias y política",
+    "26": "Estilo de vida (Howto & Style)",
+    "27": "Educación",
+    "28": "Ciencia y tecnología",
+    "29": "ONGs y activismo",
+}
+DISCOVER_CATEGORY_IDS: list[str] = list(DISCOVER_CATEGORY_LABELS)
 
 
 class YouTubeCollector(BaseCollector):
@@ -96,20 +107,23 @@ class YouTubeCollector(BaseCollector):
                     results.append(items[0])
             return results
 
-    async def discover(self, limit: int, region_code: str | None = None) -> list[RawChannelData]:
+    async def discover(self, limit: int, region_codes: list[str] | None = None) -> list[RawChannelData]:
         """
         Arma una foto de "todos los temas" para GET /api/v1/channels/discover,
         sin pedirle al usuario que elija una categoría: recorre los videos
-        "mostPopular" (trending) de YouTube por cada categoría en
-        `DISCOVER_CATEGORY_IDS`, junta los canales dueños de esos videos
-        (deduplicados) y trae sus estadísticas en lote.
+        "mostPopular" (trending) de YouTube combinando cada categoría de
+        `DISCOVER_CATEGORY_IDS` con cada región de `region_codes` (default:
+        `settings.DISCOVER_REGION_CODES`), pagina varias veces por
+        combinación (`DISCOVER_PAGES_PER_REGION_CATEGORY`) para juntar más
+        candidatos de los que entran en una sola página de 50, junta los
+        canales dueños de esos videos (deduplicados entre TODAS las
+        categorías/regiones) y trae sus estadísticas en lote.
 
         Mucho más barato en cuota que buscar tema por tema con `search.list`
-        (100 unidades/llamada): `videos.list` cuesta 1 unidad/llamada, así
-        que recorrer las ~10 categorías cuesta ~10 unidades, más ~1 unidad
-        cada 50 canales en `channels.list`. El caller (orchestrator) es quien
-        ordena de mayor a menor por la métrica elegida y recorta a `limit`;
-        acá se junta la mayor variedad posible de candidatos.
+        (100 unidades/llamada): `videos.list` cuesta 1 unidad/llamada. El
+        caller (orchestrator) es quien ordena de mayor a menor por la
+        métrica elegida y recorta a `limit`; acá se junta la mayor variedad
+        posible de candidatos (no hay un tope artificial propio).
         """
         if not await self.is_configured():
             if settings.USE_MOCK_DATA_IF_NO_CREDENTIALS:
@@ -118,17 +132,64 @@ class YouTubeCollector(BaseCollector):
                 return await super().discover(limit)
             raise PlatformAPIError("youtube", "YOUTUBE_API_KEY no configurada")
 
-        region = region_code or settings.DISCOVER_REGION_CODE
+        regions = region_codes or settings.DISCOVER_REGION_CODES
         async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
-            channel_ids = await self._discover_trending_channel_ids(client, region)
-            if not channel_ids:
+            by_category = await self._discover_trending_channel_ids_by_category(client, regions)
+            all_ids: list[str] = []
+            seen: set[str] = set()
+            for ids in by_category.values():
+                for channel_id in ids:
+                    if channel_id not in seen:
+                        seen.add(channel_id)
+                        all_ids.append(channel_id)
+            if not all_ids:
                 return []
-            return await self._fetch_channels_batch(client, channel_ids)
+            return await self._fetch_channels_batch(client, all_ids)
 
-    async def _discover_trending_channel_ids(self, client: httpx.AsyncClient, region_code: str) -> list[str]:
-        seen: set[str] = set()
-        ordered_ids: list[str] = []
-        for category_id in DISCOVER_CATEGORY_IDS:
+    async def discover_by_category(
+        self, limit_per_category: int, region_codes: list[str] | None = None
+    ) -> dict[str, list[RawChannelData]]:
+        """
+        Variante de `discover()` que NO mezcla las categorías entre sí:
+        devuelve un ranking independiente por cada una (ver
+        GET /api/v1/channels/discover/by-category), para poder "abarcar
+        todos los temas" viendo cada nicho por separado en vez de una
+        sola lista global donde los géneros más grandes (música, gaming)
+        tapan a los más chicos.
+        """
+        if not await self.is_configured():
+            if settings.USE_MOCK_DATA_IF_NO_CREDENTIALS:
+                return await super().discover_by_category(limit_per_category)
+            raise PlatformAPIError("youtube", "YOUTUBE_API_KEY no configurada")
+
+        regions = region_codes or settings.DISCOVER_REGION_CODES
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            by_category_ids = await self._discover_trending_channel_ids_by_category(client, regions)
+            results: dict[str, list[RawChannelData]] = {}
+            for category_id, channel_ids in by_category_ids.items():
+                results[category_id] = await self._fetch_channels_batch(client, channel_ids)
+            return results
+
+    async def _discover_trending_channel_ids_by_category(
+        self, client: httpx.AsyncClient, region_codes: list[str]
+    ) -> dict[str, list[str]]:
+        """
+        Para cada categoría en `DISCOVER_CATEGORY_IDS`, combina el trending
+        de todas las `region_codes` (paginando `DISCOVER_PAGES_PER_REGION_
+        CATEGORY` veces cada una) en una única lista de channelIds
+        deduplicados. Las combinaciones región+categoría se resuelven en
+        paralelo, acotadas por un semáforo (`HTTP_MAX_CONCURRENT_REQUESTS`)
+        para no disparar cientos de requests simultáneos.
+        """
+        semaphore = asyncio.Semaphore(settings.HTTP_MAX_CONCURRENT_REQUESTS)
+        by_category: dict[str, list[str]] = {cat: [] for cat in DISCOVER_CATEGORY_IDS}
+        seen_by_category: dict[str, set[str]] = {cat: set() for cat in DISCOVER_CATEGORY_IDS}
+        quota_exceeded = False
+
+        async def fetch_page(category_id: str, region_code: str, page_token: str | None):
+            nonlocal quota_exceeded
+            if quota_exceeded:
+                return None
             params = {
                 "part": "snippet",
                 "chart": "mostPopular",
@@ -137,21 +198,41 @@ class YouTubeCollector(BaseCollector):
                 "maxResults": 50,
                 "key": self.api_key,
             }
-            resp = await client.get(f"{self.base_url}/videos", params=params)
+            if page_token:
+                params["pageToken"] = page_token
+            async with semaphore:
+                resp = await client.get(f"{self.base_url}/videos", params=params)
             if resp.status_code == 403 and "quota" in resp.text.lower():
-                # Sin cuota para seguir: devolvemos lo que ya se juntó en vez
-                # de tirar abajo todo el descubrimiento.
-                break
+                # Sin cuota para seguir: se corta acá, se devuelve lo ya juntado.
+                quota_exceeded = True
+                return None
             if resp.status_code >= 400:
-                # Una categoría puede no tener "mostPopular" en esa región
-                # (o el parámetro no ser válido ahí) — se sigue con el resto.
-                continue
-            for item in resp.json().get("items", []):
-                channel_id = item.get("snippet", {}).get("channelId")
-                if channel_id and channel_id not in seen:
-                    seen.add(channel_id)
-                    ordered_ids.append(channel_id)
-        return ordered_ids
+                # Una combinación región+categoría puede no tener "mostPopular"
+                # ahí (o el parámetro no ser válido) — se sigue con el resto.
+                return None
+            return resp.json()
+
+        async def fetch_category_region(category_id: str, region_code: str) -> None:
+            page_token: str | None = None
+            for _ in range(settings.DISCOVER_PAGES_PER_REGION_CATEGORY):
+                data = await fetch_page(category_id, region_code, page_token)
+                if not data:
+                    break
+                for item in data.get("items", []):
+                    channel_id = item.get("snippet", {}).get("channelId")
+                    if channel_id and channel_id not in seen_by_category[category_id]:
+                        seen_by_category[category_id].add(channel_id)
+                        by_category[category_id].append(channel_id)
+                page_token = data.get("nextPageToken")
+                if not page_token:
+                    break
+
+        await asyncio.gather(*(
+            fetch_category_region(category_id, region_code)
+            for category_id in DISCOVER_CATEGORY_IDS
+            for region_code in region_codes
+        ))
+        return by_category
 
     # ------------------------------------------------------------------
     # Llamadas reales a la API

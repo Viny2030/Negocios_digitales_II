@@ -12,6 +12,10 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _default_discover_regions() -> list[str]:
+    return ["AR", "MX", "ES", "US"]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -68,10 +72,28 @@ class Settings(BaseSettings):
     # header 'X-Admin-Token'. Vacío/None = sin protección (uso local).
     ADMIN_TOKEN: Optional[str] = None
 
-    # --- Descubrimiento multi-tema (GET /channels/discover) ---
-    # Región usada para resolver "trending" de YouTube (videos.list chart=
-    # mostPopular) al descubrir canales sin pedir una categoría/tema puntual.
+    # --- Descubrimiento multi-tema (GET /channels/discover, /discover/by-category) ---
+    # Región usada como default cuando se pide una sola (p. ej. vía query
+    # param `region_code`). Para la pasada "todos los temas" se combinan
+    # varias regiones a la vez — ver DISCOVER_REGION_CODES.
     DISCOVER_REGION_CODE: str = "AR"
+    # Regiones combinadas por default al descubrir (más regiones = más
+    # variedad de canales, ver README). Cada región agrega, como mucho,
+    # `len(DISCOVER_CATEGORY_IDS) * DISCOVER_PAGES_PER_REGION_CATEGORY`
+    # llamadas a `videos.list` (1 unidad de cuota c/u) — barato incluso con
+    # varias regiones.
+    DISCOVER_REGION_CODES: list[str] = Field(default_factory=_default_discover_regions)
+    # Páginas de `videos.list chart=mostPopular` a recorrer por combinación
+    # región+categoría (maxResults=50/página, tope real de YouTube ronda los
+    # ~200 videos por trending). Subir esto junta más canales por corrida a
+    # costa de más llamadas (todas de 1 unidad) y más tiempo de respuesta.
+    DISCOVER_PAGES_PER_REGION_CATEGORY: int = 2
+    # Tope "práctico" de `limit`/`limit_per_category` en /channels/discover*:
+    # no hay un límite duro de la API (channels.list no tiene tope de lote,
+    # solo pagina de a 50), esto es solo una salvaguarda para no pedir un
+    # número absurdo por accidente.
+    DISCOVER_MAX_LIMIT: int = 2000
+    DISCOVER_DEFAULT_LIMIT_PER_CATEGORY: int = 30
 
 
 @lru_cache

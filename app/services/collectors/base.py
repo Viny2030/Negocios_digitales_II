@@ -99,6 +99,22 @@ class BaseCollector(ABC):
             combined.extend(topic_results)
         return combined
 
+    async def discover_by_category(self, limit_per_category: int) -> dict[str, list[RawChannelData]]:
+        """
+        Variante de `discover()` que NO mezcla los tópicos entre sí: devuelve
+        un diccionario {tópico: canales}, cada uno con su propio ranking
+        independiente — usado por GET /api/v1/channels/discover/by-category
+        para "abarcar todos los temas" sin que un género grande tape a uno
+        chico. Fallback genérico (reutiliza `search()` por tópico semilla);
+        un colector con un endpoint nativo de trending por categoría (p. ej.
+        YouTube `videos.list chart=mostPopular` + `videoCategoryId`) debe
+        sobreescribir esto con esa estrategia más precisa.
+        """
+        results_per_topic = await asyncio.gather(
+            *(self.search(topic, limit_per_category) for topic in DEFAULT_DISCOVER_TOPICS)
+        )
+        return dict(zip(DEFAULT_DISCOVER_TOPICS, results_per_topic))
+
     # ------------------------------------------------------------------
     # Utilidad compartida: generación de datos simulados (modo mock).
     # Se usa cuando no hay credenciales configuradas, para poder ejercitar

@@ -13,7 +13,7 @@ from app.services.analytics.benchmarks import compare_to_benchmark
 from app.services.analytics.normalizer import normalize_channels
 from app.services.collectors.base import BaseCollector
 from app.services.collectors.tiktok import TikTokCollector
-from app.services.collectors.youtube import YouTubeCollector
+from app.services.collectors.youtube import DISCOVER_CATEGORY_LABELS, YouTubeCollector
 
 _COLLECTORS: dict[Platform, type[BaseCollector]] = {
     Platform.YOUTUBE: YouTubeCollector,
@@ -139,6 +139,68 @@ async def discover_unified_channels(
 
     resolved_platforms = resolve_platforms(platforms)
     tasks = [_discover_and_normalize(platform, limit, sort_by) for platform in resolved_platforms]
+    results_per_platform = await asyncio.gather(*tasks)
+
+    return dict(zip(resolved_platforms, results_per_platform))
+
+
+def category_label(platform: Platform, category_key: str) -> str:
+    """
+    Nombre legible de una categoría/tópico de `discover_by_category()`. En
+    YouTube `category_key` es un `videoCategoryId` numérico ("10") que se
+    traduce vía `DISCOVER_CATEGORY_LABELS`; en el fallback genérico (TikTok,
+    o YouTube sin credenciales) `category_key` ya es el tópico semilla en
+    español ("música"), así que se devuelve tal cual.
+    """
+    if platform == Platform.YOUTUBE:
+        return DISCOVER_CATEGORY_LABELS.get(category_key, category_key)
+    return category_key.title()
+
+
+async def _discover_by_category_and_normalize(
+    platform: Platform, limit_per_category: int, sort_by: str
+) -> dict[str, list[UnifiedChannel]]:
+    collector_cls = _COLLECTORS[platform]
+    collector = collector_cls()
+    raw_by_category = await collector.discover_by_category(limit_per_category=limit_per_category)
+
+    normalized_by_category: dict[str, list[UnifiedChannel]] = {}
+    for category_key, raw_results in raw_by_category.items():
+        channels = normalize_channels(raw_results, platform)
+
+        seen: set[str] = set()
+        deduped: list[UnifiedChannel] = []
+        for channel in channels:
+            if channel.universal_id in seen:
+                continue
+            seen.add(channel.universal_id)
+            deduped.append(channel)
+
+        deduped.sort(key=lambda c: getattr(c, sort_by), reverse=True)
+        normalized_by_category[category_key] = deduped[:limit_per_category]
+    return normalized_by_category
+
+
+async def discover_by_category_unified(
+    platforms: list[Platform], limit_per_category: int, sort_by: str = "followers"
+) -> dict[Platform, dict[str, list[UnifiedChannel]]]:
+    """
+    Variante de `discover_unified_channels()` que NO mezcla las categorías:
+    para GET /api/v1/channels/discover/by-category, devuelve un ranking
+    independiente por cada categoría/tópico de cada plataforma, en vez de
+    una sola lista global donde los géneros más grandes tapan a los chicos.
+    """
+    if sort_by not in DISCOVER_SORT_FIELDS:
+        raise InsufficientDataError(
+            f"'{sort_by}' no es una métrica válida para ordenar. "
+            f"Opciones: {', '.join(DISCOVER_SORT_FIELDS)}"
+        )
+
+    resolved_platforms = resolve_platforms(platforms)
+    tasks = [
+        _discover_by_category_and_normalize(platform, limit_per_category, sort_by)
+        for platform in resolved_platforms
+    ]
     results_per_platform = await asyncio.gather(*tasks)
 
     return dict(zip(resolved_platforms, results_per_platform))

@@ -12,9 +12,10 @@ import pytest
 
 from app.core.exceptions import InsufficientDataError
 from app.models.domain import Platform
+from app.services.collectors.base import DEFAULT_DISCOVER_TOPICS
 from app.services.collectors.tiktok import TikTokCollector
-from app.services.collectors.youtube import YouTubeCollector
-from app.services.orchestrator import discover_unified_channels
+from app.services.collectors.youtube import DISCOVER_CATEGORY_IDS, YouTubeCollector
+from app.services.orchestrator import category_label, discover_by_category_unified, discover_unified_channels
 
 
 @pytest.mark.asyncio
@@ -68,3 +69,58 @@ async def test_discover_unified_channels_dedupes_by_universal_id():
 async def test_discover_unified_channels_rejects_invalid_sort_by():
     with pytest.raises(InsufficientDataError):
         await discover_unified_channels(platforms=[Platform.YOUTUBE], limit=10, sort_by="not_a_real_field")
+
+
+# ---------------------------------------------------------------------
+# discover_by_category() / GET /channels/discover/by-category — un ranking
+# independiente por cada categoría/tópico, en vez de una sola lista mezclada.
+# ---------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_base_discover_by_category_returns_one_key_per_seed_topic():
+    """TikTok cae al fallback genérico: un ranking por cada tópico semilla."""
+    collector = TikTokCollector()
+    by_topic = await collector.discover_by_category(limit_per_category=10)
+    assert set(by_topic.keys()) == set(DEFAULT_DISCOVER_TOPICS)
+    assert all(len(raw) > 0 for raw in by_topic.values())
+
+
+@pytest.mark.asyncio
+async def test_youtube_discover_by_category_falls_back_to_mock_without_credentials():
+    collector = YouTubeCollector()
+    by_topic = await collector.discover_by_category(limit_per_category=10)
+    assert set(by_topic.keys()) == set(DEFAULT_DISCOVER_TOPICS)
+
+
+@pytest.mark.asyncio
+async def test_discover_by_category_unified_keeps_categories_independent():
+    by_platform = await discover_by_category_unified(
+        platforms=[Platform.YOUTUBE], limit_per_category=10, sort_by="followers",
+    )
+    by_category = by_platform[Platform.YOUTUBE]
+    assert len(by_category) > 1
+    for channels in by_category.values():
+        assert len(channels) <= 10
+        followers = [c.followers for c in channels]
+        assert followers == sorted(followers, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_discover_by_category_unified_rejects_invalid_sort_by():
+    with pytest.raises(InsufficientDataError):
+        await discover_by_category_unified(
+            platforms=[Platform.YOUTUBE], limit_per_category=10, sort_by="not_a_real_field",
+        )
+
+
+def test_category_label_maps_youtube_ids_and_passes_through_generic_topics():
+    # Un ID real de categoría de YouTube tiene nombre legible propio.
+    assert category_label(Platform.YOUTUBE, "10") == "Música"
+    # Un tópico del fallback genérico (TikTok, o YouTube sin credenciales)
+    # ya es legible tal cual — se devuelve con formato título.
+    assert category_label(Platform.TIKTOK, "música") == "Música"
+    # Todas las categorías reales de YouTube tienen que tener nombre propio
+    # (si no, el dashboard mostraría el ID numérico crudo).
+    for category_id in DISCOVER_CATEGORY_IDS:
+        label = category_label(Platform.YOUTUBE, category_id)
+        assert label != category_id

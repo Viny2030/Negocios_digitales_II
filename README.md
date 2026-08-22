@@ -33,7 +33,7 @@ estadística.
 
 `GET /dashboard` sirve un dashboard de una sola página (`app/static/dashboard.html`
 — HTML/CSS/JS plano, sin frameworks ni librerías externas) que consume la propia
-API por `fetch` (mismo origen, sin configurar nada de CORS). Cinco pestañas:
+API por `fetch` (mismo origen, sin configurar nada de CORS). Seis pestañas:
 
 - **Resumen** — KPIs por plataforma (canales, seguidores, vistas, ER promedio con
   badge de benchmark), canales por tier, Gini de desigualdad, distribución de
@@ -42,6 +42,9 @@ API por `fetch` (mismo origen, sin configurar nada de CORS). Cinco pestañas:
 - **Por canal** — tabla completa, ordenable por cualquier columna, filtrable por
   nombre/@handle, con chip de tier y aviso ⚠ en los canales que el detector de
   anomalías marcó como posiblemente inflados.
+- **Por categoría** — un ranking independiente por cada categoría de YouTube
+  (música, gaming, noticias, ciencia y tecnología, etc.), sin mezclarlas entre
+  sí — para que un género grande (música, gaming) no tape a uno más chico.
 - **Por temática** — cada búsqueda queda guardada en la sesión del navegador
   (no se persiste en el backend) para comparar seguidores y ER promedio entre
   distintos temas buscados.
@@ -54,13 +57,30 @@ API por `fetch` (mismo origen, sin configurar nada de CORS). Cinco pestañas:
   [Seguimiento (persistencia + worker)](#seguimiento-persistencia--worker)
   más abajo.
 
-En la pestaña **Por canal**, además de buscar por tema, el botón **"🌐 Todos
-los temas"** llama a `GET /channels/discover`: no pide una categoría, arma
-una lista de canales de temas bien distintos (música, gaming, noticias,
-tecnología, deportes, etc. — ver `YouTubeCollector.discover`) y la devuelve
-ya ordenada de mayor a menor por la métrica elegida (suscriptores, vistas,
-publicaciones o NER). Desde esa misma tabla, "+ Seguir" agrega cualquier
-canal al seguimiento semanal sin tener que darlo de alta a mano.
+Debajo del buscador por tema hay una segunda fila ("— o todos los temas, sin
+categoría —") con dos modos que no piden palabra clave:
+
+- **🌐 Lista única** (`GET /channels/discover`) — junta candidatos de todos
+  los temas en una sola lista, ordenada de mayor a menor por la métrica
+  elegida (suscriptores, vistas, publicaciones o NER). El campo numérico al
+  lado controla cuántos canales en total (hasta 2000; no hay un tope duro,
+  el real es cuántos canales distintos aparecen en el trending combinado).
+- **📊 Por categoría** (`GET /channels/discover/by-category`) — el mismo
+  descubrimiento, pero sin mezclar las categorías: un ranking independiente
+  por cada una (pestaña "Por categoría"). El campo numérico controla cuántos
+  canales **por categoría**, no un total global.
+
+En ambos casos, cómo se arma la lista de candidatos: en YouTube, recorriendo
+el trending (`videos.list chart=mostPopular`) combinando cada categoría de
+`YouTubeCollector.DISCOVER_CATEGORY_LABELS` (15 en total — música, gaming,
+entretenimiento, noticias y política, deportes, ciencia y tecnología,
+educación, comedia, estilo de vida, cine y animación, autos y vehículos,
+mascotas y animales, viajes y eventos, blogs, ONGs y activismo) con cada
+región de `DISCOVER_REGION_CODES` (default: Argentina, México, España,
+Estados Unidos), paginando un par de veces cada combinación para juntar más
+candidatos de los que entran en una sola página de 50. Desde cualquiera de
+las dos tablas, "+ Seguir" agrega ese canal al seguimiento semanal sin tener
+que darlo de alta a mano.
 
 Soporta modo claro/oscuro (automático según el sistema, con toggle manual que
 se recuerda en `localStorage`). Los gráficos son SVG dibujados a mano siguiendo
@@ -85,7 +105,8 @@ pytest -v
 |---|---|---|
 | POST | `/api/v1/analyze` | Pipeline completo: busca en YouTube + TikTok, normaliza y devuelve canales + resumen (con benchmark de industria por plataforma) |
 | GET | `/api/v1/channels/search?query=&platform=youtube\|tiktok\|all&limit=` | Búsqueda unificada |
-| GET | `/api/v1/channels/discover?platform=&limit=&sort_by=followers\|total_views\|total_posts\|normalized_er` | **Todos los temas** (sin categoría): candidatos de temas bien distintos, ordenados de mayor a menor por la métrica elegida |
+| GET | `/api/v1/channels/discover?platform=&limit=&sort_by=followers\|total_views\|total_posts\|normalized_er` | **Todos los temas**, lista única: candidatos de temas bien distintos, ordenados de mayor a menor por la métrica elegida. `limit` hasta `DISCOVER_MAX_LIMIT` (2000 por default) |
+| GET | `/api/v1/channels/discover/by-category?platform=&limit_per_category=&sort_by=` | **Todos los temas**, por categoría: igual que el anterior pero sin mezclar — un ranking independiente por cada categoría/tópico |
 | GET | `/api/v1/analytics/benchmarks?platform=youtube\|tiktok\|all` | **Métricas del medio**: ficha de referencia de industria por plataforma (fórmula y rango de ER, retención, frecuencia de publicación típica, vida útil del contenido, riesgo de sesgo). No requiere `query`, no consulta APIs externas. |
 | GET | `/api/v1/analytics/distribution?query=&platform=youtube\|tiktok&limit=` | Mín/máx/rango, percentiles (P5/P10/P25/P75/P90/P95), IQR, desvío estándar, **coeficiente de variación**, skewness, kurtosis — más comparación contra el benchmark de industria |
 | GET | `/api/v1/analytics/inequality?query=&limit=` | Coeficiente de Gini, exponente de Pareto y participación del top 10%, comparando YouTube vs TikTok |
@@ -213,6 +234,12 @@ quedan abiertos por default (uso local/desarrollo); si configurás
   según el nivel de acceso aprobado; por eso el colector prioriza el modo
   mock salvo que configures credenciales con el producto correcto
   habilitado.
+- **`/channels/discover*`**: cada combinación categoría+región+página de
+  `videos.list` cuesta 1 unidad — con los defaults (15 categorías × 4
+  regiones × hasta 2 páginas) una corrida completa consume unos pocos
+  cientos de unidades, lejos de las 10.000/día. `DISCOVER_REGION_CODES` y
+  `DISCOVER_PAGES_PER_REGION_CATEGORY` (en `.env`) controlan cuánta
+  variedad se junta a costa de más llamadas y más tiempo de respuesta.
 - Ambos colectores son extensibles: agregar una plataforma nueva implica
   crear un `Collector` + un `normalize_*` y sumarlo a `orchestrator.py`.
 

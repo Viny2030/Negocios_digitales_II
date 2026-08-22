@@ -135,6 +135,15 @@
     border: 1px solid var(--border); background: var(--page-plane); color: var(--text-primary); font-size: 14px;
   }
   .search-form input[type="number"] { width: 72px; padding: 8px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page-plane); color: var(--text-primary); }
+  #discover-controls { padding-top: 10px; margin-top: 10px; border-top: 1px dashed var(--border); }
+  #discover-controls input[type="number"] {
+    width: 76px; padding: 8px 8px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
+  }
+  #discover-controls select {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
+  }
   .chip-toggle { display: flex; gap: 6px; }
   .chip-toggle label {
     display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 999px;
@@ -268,10 +277,6 @@
   .track-form select { min-width: 110px; }
   .track-form input[type="text"] { min-width: 160px; flex: 1; }
   .track-form input#track-label { min-width: 140px; flex: 0 1 160px; }
-  .search-form select {
-    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
-    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
-  }
   .job-result { font-size: 12px; color: var(--text-secondary); margin-top: 10px; }
   .job-result .job-errors { color: var(--status-critical); margin-top: 4px; }
   table.data-table tr.selected-row { background: var(--series-youtube-soft); }
@@ -299,22 +304,28 @@
     <div class="brand"><span class="brand-text">Channel Analytics<small>Dashboard — YouTube</small></span></div>
     <form class="search-form" id="search-form">
       <input type="text" id="query-input" placeholder="Temática a buscar (ej: fitness, gaming, cocina)" required />
-      <input type="number" id="limit-input" min="4" max="100" value="25" title="Cantidad de canales" />
+      <input type="number" id="limit-input" min="4" max="100" value="25" title="Canales por plataforma (esta búsqueda)" />
       <button type="submit" class="primary" id="search-btn">Buscar</button>
-      <span class="card-sub" style="margin:0;">— o —</span>
-      <select id="discover-sort" title="Métrica para ordenar de mayor a menor">
-        <option value="followers">Suscriptores</option>
-        <option value="total_views">Vistas</option>
-        <option value="total_posts">Publicaciones</option>
-        <option value="normalized_er">NER %</option>
-      </select>
-      <button type="button" class="ghost" id="discover-btn" title="Junta canales de todos los temas (sin elegir categoría) y los ordena de mayor a menor por la métrica elegida">🌐 Todos los temas</button>
     </form>
     <button class="ghost" id="theme-toggle" title="Cambiar tema" type="button">◐</button>
+  </div>
+  <div class="header-row" id="discover-controls">
+    <span class="card-sub" style="margin:0;white-space:nowrap;">— o todos los temas, sin categoría —</span>
+    <select id="discover-sort" title="Métrica para ordenar de mayor a menor">
+      <option value="followers">Suscriptores</option>
+      <option value="total_views">Vistas</option>
+      <option value="total_posts">Publicaciones</option>
+      <option value="normalized_er">NER %</option>
+    </select>
+    <input type="number" id="discover-limit-input" min="10" max="2000" value="200" title="Cantidad total de canales (lista única)" />
+    <button type="button" class="ghost" id="discover-btn" title="Junta canales de todos los temas (sin elegir categoría) en una sola lista, ordenada de mayor a menor por la métrica elegida">🌐 Lista única</button>
+    <input type="number" id="discover-per-category-input" min="5" max="2000" value="30" title="Cantidad de canales POR categoría" />
+    <button type="button" class="ghost" id="discover-by-category-btn" title="Un ranking independiente por cada categoría (música, gaming, noticias, etc.), sin mezclarlas entre sí">📊 Por categoría</button>
   </div>
   <nav class="tabs">
     <button data-tab="resumen" class="active">Resumen</button>
     <button data-tab="canales">Por canal</button>
+    <button data-tab="categorias">Por categoría</button>
     <button data-tab="tematicas">Por temática</button>
     <button data-tab="benchmarks">Métricas del medio</button>
     <button data-tab="seguimiento">Seguimiento diario</button>
@@ -410,6 +421,14 @@
         </div>
         <div id="channel-detail-actions" style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"></div>
       </div>
+    </div>
+  </section>
+
+  <section id="tab-categorias" class="tab-panel">
+    <div id="categorias-empty" class="empty-note">Apretá "📊 Por categoría" arriba para ver un ranking independiente de cada tema (música, gaming, noticias, etc. — sin mezclarlos entre sí).</div>
+    <div id="categorias-content" style="display:none;">
+      <p class="card-sub" id="categorias-sub" style="margin-bottom:16px;"></p>
+      <div id="categorias-tables"></div>
     </div>
   </section>
 
@@ -1096,9 +1115,11 @@
     if (followBtn) followBtn.addEventListener("click", () => followChannelFromSearch(c.universal_id, followBtn));
   }
 
-  async function followChannelFromSearch(universalId, triggerEl) {
-    const c = state.channels.find(x => x.universal_id === universalId);
-    if (!c) return;
+  // Agrega un canal al seguimiento. Genérico: recibe el objeto canal
+  // directamente (no un id a buscar en `state.channels`) para poder
+  // reutilizarse desde la tabla principal, el detalle Y las tablas de
+  // "Por categoría" (que no viven en `state.channels`).
+  async function followChannel(channel, triggerEl, onSuccess) {
     const originalText = triggerEl.textContent;
     triggerEl.disabled = true;
     triggerEl.textContent = "Agregando…";
@@ -1106,17 +1127,27 @@
       await fetchJSON(`${API}/tracking/channels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: c.platform, identifier: c.native_id, label: c.name }),
+        body: JSON.stringify({ platform: channel.platform, identifier: channel.native_id, label: channel.name }),
       });
       await loadTrackedChannels();
-      renderChannelsTable();
-      if (state.selectedChannelId === universalId) showChannelDetail(universalId);
+      triggerEl.outerHTML = `<span class="card-sub" style="margin:0;">✓ En seguimiento</span>`;
+      if (onSuccess) onSuccess();
     } catch (e) {
       triggerEl.disabled = false;
       triggerEl.textContent = originalText;
       const statusEl = document.getElementById("channel-detail-follow-status");
       if (statusEl) { statusEl.textContent = "No se pudo agregar: " + e.message; statusEl.style.color = "var(--status-critical)"; }
+      else setBanner("error", "No se pudo agregar: " + e.message);
     }
+  }
+
+  async function followChannelFromSearch(universalId, triggerEl) {
+    const c = state.channels.find(x => x.universal_id === universalId);
+    if (!c) return;
+    await followChannel(c, triggerEl, () => {
+      renderChannelsTable();
+      if (state.selectedChannelId === universalId) showChannelDetail(universalId);
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -1453,6 +1484,94 @@
   }
 
   // ---------------------------------------------------------------------
+  // Descubrir "por categoría" — un ranking independiente por cada tema
+  // (música, gaming, noticias, etc.), sin mezclarlos entre sí.
+  // ---------------------------------------------------------------------
+  let categoryChannelsIndex = {};
+
+  function categoryTableHtml(cat) {
+    const rows = cat.channels.map(c => {
+      const tierChip = `<span class="tier-chip" style="background:${TIER_COLOR[c.tier]};color:${TIER_TEXT[c.tier] || '#ffffff'}">${TIER_LABEL[c.tier] || c.tier}</span>`;
+      const nameCell = c.url
+        ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.name)}</a>`
+        : escapeHtml(c.name);
+      const alreadyTracked = state.tracked.some(tc => tc.platform === c.platform && tc.native_id === c.native_id);
+      const followBtn = alreadyTracked
+        ? `<span class="card-sub" style="margin:0;">✓ En seguimiento</span>`
+        : `<button type="button" class="link-action" data-action="follow-cat" data-uid="${escapeHtml(c.universal_id)}">+ Seguir</button>`;
+      return `<tr>
+        <td>${nameCell}<div class="card-sub" style="margin:0;">${escapeHtml(c.handle || "")}</div></td>
+        <td>${tierChip}</td>
+        <td class="num">${fmtCompact(c.followers)}</td>
+        <td class="num">${fmtCompact(c.total_views)}</td>
+        <td class="num">${fmtInt(c.total_posts)}</td>
+        <td class="num">${fmtPct(c.normalized_er)}</td>
+        <td>${followBtn}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="7" class="empty-note">Sin datos para esta categoría en las regiones configuradas.</td></tr>`;
+
+    return `<div class="card card-accent aqua" style="margin-bottom:16px;">
+      <div class="filter-row" style="justify-content:space-between;">
+        <h3 style="margin:0;">${escapeHtml(cat.label)}</h3>
+        <span class="card-sub" style="margin:0;">${cat.channel_count} canal(es)</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead><tr>
+            <th>Canal</th><th>Tier</th><th class="num">Seguidores</th><th class="num">Vistas</th>
+            <th class="num">Publicaciones</th><th class="num">NER %</th><th>Acciones</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  function renderByCategoryTables(platformBreakdown) {
+    categoryChannelsIndex = {};
+    const html = platformBreakdown.categories.map(cat => {
+      cat.channels.forEach(c => { categoryChannelsIndex[c.universal_id] = c; });
+      return categoryTableHtml(cat);
+    }).join("");
+    document.getElementById("categorias-tables").innerHTML = html;
+    document.querySelectorAll('#categorias-tables [data-action="follow-cat"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        const c = categoryChannelsIndex[btn.getAttribute("data-uid")];
+        if (c) followChannel(c, btn);
+      });
+    });
+  }
+
+  async function runDiscoverByCategory(limitPerCategory, sortBy) {
+    const SORT_LABEL = {
+      followers: "suscriptores", total_views: "vistas",
+      total_posts: "publicaciones", normalized_er: "NER %",
+    };
+    setBanner("loading", `Armando un ranking por categoría (todos los temas)…`);
+    document.getElementById("discover-by-category-btn").disabled = true;
+    try {
+      const res = await fetchJSON(`${API}/channels/discover/by-category?limit_per_category=${limitPerCategory}&sort_by=${sortBy}`);
+      const platformData = res.platforms[0]; // por ahora solo YouTube tiene trending real
+
+      document.getElementById("categorias-empty").style.display = "none";
+      document.getElementById("categorias-content").style.display = "block";
+      document.getElementById("categorias-sub").textContent =
+        `Cada categoría ordenada de mayor a menor por ${SORT_LABEL[sortBy] || sortBy} — hasta ${limitPerCategory} canales por categoría.`;
+      renderByCategoryTables(platformData);
+
+      document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      document.querySelector('nav.tabs button[data-tab="categorias"]').classList.add("active");
+      document.getElementById("tab-categorias").classList.add("active");
+      setBanner("", "");
+    } catch (e) {
+      setBanner("error", "Error: " + e.message);
+    } finally {
+      document.getElementById("discover-by-category-btn").disabled = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------
   function initTabs() {
@@ -1490,9 +1609,14 @@
       runSearch(query, platforms, limit);
     });
     document.getElementById("discover-btn").addEventListener("click", () => {
-      const limit = Math.max(4, Math.min(100, parseInt(document.getElementById("limit-input").value, 10) || 25));
+      const limit = Math.max(10, Math.min(2000, parseInt(document.getElementById("discover-limit-input").value, 10) || 200));
       const sortBy = document.getElementById("discover-sort").value;
       runDiscover(limit, sortBy);
+    });
+    document.getElementById("discover-by-category-btn").addEventListener("click", () => {
+      const limitPerCategory = Math.max(5, Math.min(2000, parseInt(document.getElementById("discover-per-category-input").value, 10) || 30));
+      const sortBy = document.getElementById("discover-sort").value;
+      runDiscoverByCategory(limitPerCategory, sortBy);
     });
   }
 

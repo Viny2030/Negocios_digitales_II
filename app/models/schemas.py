@@ -138,6 +138,32 @@ class SearchResponse(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Responses: descubrimiento "por categoría" (sin mezclar temas entre sí)
+# ─────────────────────────────────────────────────────────────────────────
+
+class CategoryChannels(BaseModel):
+    """Ranking de canales de una única categoría/tópico, ya ordenado por métrica."""
+
+    category: str = Field(..., description="Clave interna de la categoría (ver `label` para el nombre legible)")
+    label: str = Field(..., description="Nombre legible de la categoría/tópico")
+    channel_count: int
+    channels: list[UnifiedChannel]
+
+
+class PlatformCategoryBreakdown(BaseModel):
+    platform: Platform
+    categories: list[CategoryChannels]
+
+
+class DiscoverByCategoryResponse(BaseModel):
+    """Respuesta de GET /api/v1/channels/discover/by-category."""
+
+    meta: ExecutionMeta
+    sort_by: str
+    platforms: list[PlatformCategoryBreakdown]
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Responses: motor estadístico
 # ─────────────────────────────────────────────────────────────────────────
 
