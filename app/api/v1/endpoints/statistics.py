@@ -10,11 +10,17 @@ Nota de diseño: en esta fase no hay capa de persistencia (dim_channels /
 fact_metrics_daily), así que cada llamada recalcula sobre datos frescos.
 Cuando se agregue el worker diario (ver README), estos endpoints pueden
 leer snapshots precalculados en <50ms en lugar de re-consultar las APIs.
+
+Todos requieren "toda la estadística" (plan 'unica' con crédito
+disponible, 'mensual' o 'premium' activos — ver `app.api.deps.
+require_full_access`), EXCEPTO `/analytics/benchmarks`, que es
+referencia estática de industria y queda siempre público.
 """
 import time
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.deps import require_full_access
 from app.core.config import get_settings
 from app.core.exceptions import InsufficientDataError
 from app.models.domain import Platform
@@ -61,7 +67,10 @@ async def benchmarks(
     )
 
 
-@router.get("/distribution", response_model=DistributionResponse, summary="Percentiles, dispersión y forma")
+@router.get(
+    "/distribution", response_model=DistributionResponse, summary="Percentiles, dispersión y forma",
+    dependencies=[Depends(require_full_access)],
+)
 async def distribution(
     query: str = Query(..., min_length=1, max_length=200),
     platform: Platform = Query(..., description="youtube | tiktok"),
@@ -95,7 +104,10 @@ async def distribution(
     )
 
 
-@router.get("/inequality", response_model=InequalityResponse, summary="Coeficiente de Gini comparativo")
+@router.get(
+    "/inequality", response_model=InequalityResponse, summary="Coeficiente de Gini comparativo",
+    dependencies=[Depends(require_full_access)],
+)
 async def inequality(
     query: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT),
@@ -135,7 +147,10 @@ async def inequality(
     )
 
 
-@router.get("/correlation", response_model=CorrelationResponse, summary="Spearman/Pearson entre variables de canal")
+@router.get(
+    "/correlation", response_model=CorrelationResponse, summary="Spearman/Pearson entre variables de canal",
+    dependencies=[Depends(require_full_access)],
+)
 async def correlation(
     query: str = Query(..., min_length=1, max_length=200),
     platform: Platform = Query(..., description="youtube | tiktok"),
@@ -168,7 +183,10 @@ async def correlation(
     )
 
 
-@router.get("/anomalies", response_model=AnomalyResponse, summary="Detección de cuentas con métricas infladas")
+@router.get(
+    "/anomalies", response_model=AnomalyResponse, summary="Detección de cuentas con métricas infladas",
+    dependencies=[Depends(require_full_access)],
+)
 async def anomalies(
     query: str = Query(..., min_length=1, max_length=200),
     platform: Platform = Query(..., description="youtube | tiktok"),
@@ -199,6 +217,7 @@ async def anomalies(
     "/overview",
     response_model=OverviewResponse,
     summary="Vista consolidada: distribución + desigualdad + correlación + anomalías + benchmark, por plataforma",
+    dependencies=[Depends(require_full_access)],
 )
 async def overview(
     query: str = Query(..., min_length=1, max_length=200),

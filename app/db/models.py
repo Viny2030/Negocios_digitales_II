@@ -75,3 +75,52 @@ class ChannelMetricSnapshot(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     tracked_channel: Mapped["TrackedChannel"] = relationship(back_populates="snapshots")
+
+
+class User(Base):
+    """
+    Cuenta de usuario (auth armada desde cero: email + contraseña con hash
+    bcrypt) y su plan de suscripción (`app.models.domain.Plan`).
+
+    No hay pasarela de pago real conectada todavía (Mercado Pago/Stripe) —
+    proyecto universitario: `plan`/`plan_active_until`/`report_credits` se
+    actualizan a mano vía `POST /api/v1/auth/admin/set-plan`, dejando la
+    arquitectura lista para conectar un cobro real más adelante sin tocar
+    el resto del sistema (ver `app/services/users.py` y `app/api/deps.py`).
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    plan: Mapped[str] = mapped_column(String(20), default="free", nullable=False)
+    # Vigencia de 'mensual'/'premium' (None = nunca activado o vencido). No
+    # aplica a 'unica', que en cambio consume `report_credits`.
+    plan_active_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Saldo de reportes puntuales comprados bajo el plan 'unica'.
+    report_credits: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    @property
+    def has_active_subscription(self) -> bool:
+        """True si el plan es 'mensual'/'premium' y no venció `plan_active_until`."""
+        if self.plan not in ("mensual", "premium"):
+            return False
+        if self.plan_active_until is None:
+            return False
+        return self.plan_active_until >= datetime.utcnow()
+
+    @property
+    def has_full_stats_access(self) -> bool:
+        """
+        Acceso a "toda la estadística": suscripción activa, o plan 'unica'
+        con al menos 1 crédito de reporte disponible todavía sin consumir.
+        """
+        return self.has_active_subscription or (self.plan == "unica" and self.report_credits > 0)
+
+    @property
+    def has_premium_access(self) -> bool:
+        """Proyecciones + recomendaciones: requiere 'premium' activo (no alcanza con 'unica')."""
+        return self.plan == "premium" and self.has_active_subscription

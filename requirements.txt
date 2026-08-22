@@ -13,6 +13,11 @@ sqlalchemy==2.0.35
 aiosqlite==0.20.0
 apscheduler==3.10.4
 
+# Autenticación y suscripciones (planes free/unica/mensual/premium) —
+# armada desde cero, sin proveedor externo de identidad
+bcrypt==4.2.0
+pyjwt==2.9.0
+
 # Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0

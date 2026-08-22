@@ -1,0 +1,30 @@
+# Credenciales y configuración local — NUNCA subir (contiene YOUTUBE_API_KEY real)
+.env
+.env.*
+!.env.example
+
+# Base de datos local (SQLite) del seguimiento diario/semanal
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

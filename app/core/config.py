@@ -95,6 +95,19 @@ class Settings(BaseSettings):
     DISCOVER_MAX_LIMIT: int = 2000
     DISCOVER_DEFAULT_LIMIT_PER_CATEGORY: int = 30
 
+    # --- Autenticación y suscripciones (planes: free/unica/mensual/premium) ---
+    # Firma los JWT de sesión emitidos por /api/v1/auth/{register,login}.
+    # IMPORTANTE: este default es solo para desarrollo/proyecto universitario
+    # — en un despliegue real hay que sobreescribirlo en `.env` con un valor
+    # secreto propio (nunca commitear ese valor real).
+    JWT_SECRET_KEY: str = "dev-only-secret-cambiar-en-produccion-negocios-digitales-ii"
+    JWT_ALGORITHM: str = "HS256"
+    # Duración del token de sesión: 7 días por default.
+    JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
+    # Días de vigencia por defecto al simular una alta de 'mensual'/'premium'
+    # vía POST /auth/admin/set-plan cuando no se especifica `active_days`.
+    DEFAULT_PLAN_ACTIVE_DAYS: int = 30
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -81,6 +81,61 @@ class UnauthorizedError(ChannelAnalyticsError):
         super().__init__("Token de administración inválido o ausente", status_code=status.HTTP_401_UNAUTHORIZED)
 
 
+class UserAlreadyExistsError(ChannelAnalyticsError):
+    """Ya existe una cuenta registrada con ese email."""
+
+    def __init__(self, email: str):
+        super().__init__(
+            f"Ya existe un usuario registrado con el email '{email}'", status_code=status.HTTP_409_CONFLICT,
+        )
+
+
+class UserNotFoundError(ChannelAnalyticsError):
+    """No existe ninguna cuenta con ese email (p. ej. al simular un cambio de plan)."""
+
+    def __init__(self, email: str):
+        super().__init__(f"No existe ningún usuario con el email '{email}'", status_code=status.HTTP_404_NOT_FOUND)
+
+
+class InvalidCredentialsError(ChannelAnalyticsError):
+    """Email no registrado o contraseña incorrecta en POST /auth/login."""
+
+    def __init__(self):
+        super().__init__("Email o contraseña incorrectos", status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+class NotAuthenticatedError(ChannelAnalyticsError):
+    """Falta o es inválido el header Authorization: Bearer <token> (JWT de sesión)."""
+
+    def __init__(self):
+        super().__init__(
+            "Se requiere iniciar sesión (header 'Authorization: Bearer <token>')",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+
+class SubscriptionRequiredError(ChannelAnalyticsError):
+    """El usuario autenticado no tiene un plan con acceso a toda la estadística."""
+
+    def __init__(self):
+        super().__init__(
+            "Se requiere un plan activo (única con crédito disponible, mensual o premium) "
+            "para acceder a esta funcionalidad",
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+
+
+class PremiumRequiredError(ChannelAnalyticsError):
+    """El usuario autenticado no tiene el plan premium (proyecciones/recomendaciones)."""
+
+    def __init__(self):
+        super().__init__(
+            "Esta funcionalidad requiere el plan premium (proyecciones de tendencia y "
+            "recomendaciones de política general por métrica)",
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+
+
 async def channel_analytics_exception_handler(request: Request, exc: ChannelAnalyticsError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,

@@ -176,6 +176,7 @@
   nav.tabs button[data-tab="tematicas"].active { border-bottom-color: var(--accent-magenta); }
   nav.tabs button[data-tab="benchmarks"].active { border-bottom-color: var(--accent-yellow); }
   nav.tabs button[data-tab="seguimiento"].active { border-bottom-color: var(--accent-violet); }
+  nav.tabs button[data-tab="cuenta"].active { border-bottom-color: var(--accent-aqua); }
 
   /* Franja de acento arriba de la tarjeta principal de cada pestaña — un
      detalle de color por sección en vez de todo en el mismo azul plano. */
@@ -295,6 +296,42 @@
 
   .empty-note { color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center; }
   footer { text-align: center; color: var(--text-muted); font-size: 11px; padding: 24px 0 40px; }
+
+  /* Cuenta / autenticación / planes */
+  #account-chip { font-weight: 600; }
+  .plan-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+  .plan-badge.free    { background: var(--page-plane); color: var(--text-muted); border: 1px solid var(--border); }
+  .plan-badge.unica   { background: rgba(237,161,0,0.16); color: var(--accent-yellow); }
+  .plan-badge.mensual { background: rgba(27,175,122,0.16); color: var(--accent-aqua); }
+  .plan-badge.premium { background: rgba(74,58,167,0.16); color: var(--accent-violet); }
+  .auth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 780px) { .auth-grid { grid-template-columns: 1fr; } }
+  .auth-form { display: flex; flex-direction: column; gap: 8px; max-width: 320px; }
+  .auth-form input[type="email"], .auth-form input[type="password"], .auth-form input[type="text"], .auth-form select {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
+  }
+  .account-summary dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+  .account-summary dt { color: var(--text-muted); font-size: 12px; }
+  .account-summary dd { margin: 0; font-size: 13px; }
+  .admin-plan-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .admin-plan-form input, .admin-plan-form select {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
+  }
+  .admin-plan-form input[type="email"] { min-width: 200px; flex: 1; }
+  .admin-plan-form input[type="number"] { width: 90px; }
+  .premium-panel { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+  .premium-panel .inline-actions { margin-bottom: 10px; }
+  .recommendation-item { background: var(--page-plane); border: 1px solid var(--border); border-left: 3px solid var(--accent-violet); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+  .recommendation-item .rec-priority { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+  .recommendation-item .rec-priority.alta { color: var(--status-critical); }
+  .recommendation-item .rec-priority.media { color: var(--accent-yellow); }
+  .recommendation-item .rec-priority.informativa { color: var(--text-muted); }
+  .recommendation-item .rec-finding { font-size: 12px; margin: 3px 0; }
+  .recommendation-item .rec-recommendation { font-size: 13px; }
+  .projection-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; }
+  .projection-table th, .projection-table td { padding: 5px 8px; border-bottom: 1px solid var(--gridline); text-align: left; }
 </style>
 </head>
 <body>
@@ -307,6 +344,7 @@
       <input type="number" id="limit-input" min="4" max="100" value="25" title="Canales por plataforma (esta búsqueda)" />
       <button type="submit" class="primary" id="search-btn">Buscar</button>
     </form>
+    <button class="ghost" id="account-chip" title="Ver estado de la cuenta" type="button">Invitado</button>
     <button class="ghost" id="theme-toggle" title="Cambiar tema" type="button">◐</button>
   </div>
   <div class="header-row" id="discover-controls">
@@ -329,6 +367,7 @@
     <button data-tab="tematicas">Por temática</button>
     <button data-tab="benchmarks">Métricas del medio</button>
     <button data-tab="seguimiento">Seguimiento diario</button>
+    <button data-tab="cuenta">Cuenta</button>
   </nav>
 </header>
 
@@ -504,6 +543,74 @@
       <h3 id="history-title">Historial de seguidores</h3>
       <p class="card-sub" id="history-sub"></p>
       <div id="chart-history"></div>
+
+      <div class="premium-panel">
+        <p class="card-sub" style="margin:0 0 8px;">📈 <strong>Premium</strong> — proyección de tendencia y recomendaciones de política general para este canal (requiere plan premium activo, ver pestaña "Cuenta").</p>
+        <div class="inline-actions">
+          <button type="button" class="ghost accent-violet" id="premium-projections-btn">Ver proyección</button>
+          <button type="button" class="ghost accent-violet" id="premium-recommendations-btn">Ver recomendaciones</button>
+        </div>
+        <div id="premium-result"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-cuenta" class="tab-panel">
+    <div class="card card-accent aqua" id="account-guest-card">
+      <h3>Iniciar sesión / Crear cuenta</h3>
+      <p class="card-sub">"Única" y "mensual" dan acceso a toda la estadística del sitio (métricas nacionales e internacionales, incluidas las que no se miden en Argentina/Latinoamérica). "Premium" suma proyecciones de tendencia y recomendaciones. Sin pasarela de pago real todavía — el cambio de plan se simula manualmente más abajo.</p>
+      <div class="auth-grid">
+        <form class="auth-form" id="login-form">
+          <strong>Iniciar sesión</strong>
+          <input type="email" id="login-email" placeholder="Email" required />
+          <input type="password" id="login-password" placeholder="Contraseña" required />
+          <button type="submit" class="primary">Iniciar sesión</button>
+          <div id="login-status" class="job-result"></div>
+        </form>
+        <form class="auth-form" id="register-form">
+          <strong>Crear cuenta (plan "free")</strong>
+          <input type="email" id="register-email" placeholder="Email" required />
+          <input type="password" id="register-password" placeholder="Contraseña (mín. 8 caracteres)" minlength="8" required />
+          <button type="submit" class="primary accent-violet">Crear cuenta</button>
+          <div id="register-status" class="job-result"></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card card-accent violet" id="account-summary-card" style="display:none;">
+      <div class="filter-row" style="justify-content:space-between;">
+        <h3 style="margin:0;">Mi cuenta</h3>
+        <button type="button" class="ghost" id="logout-btn">Cerrar sesión</button>
+      </div>
+      <div class="account-summary">
+        <dl>
+          <dt>Email</dt><dd id="account-email"></dd>
+          <dt>Plan</dt><dd id="account-plan"></dd>
+          <dt>Vigencia (mensual/premium)</dt><dd id="account-active-until"></dd>
+          <dt>Créditos de reporte (única)</dt><dd id="account-credits"></dd>
+          <dt>Acceso a toda la estadística</dt><dd id="account-full-access"></dd>
+          <dt>Acceso premium</dt><dd id="account-premium-access"></dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card card-accent yellow">
+      <h3>Simular un cambio de plan (sin pasarela de pago real)</h3>
+      <p class="card-sub">Proyecto universitario: todavía no hay Mercado Pago/Stripe conectado. Este formulario llama a <code>POST /api/v1/auth/admin/set-plan</code> (protegido con <code>X-Admin-Token</code> si está configurado en el backend) para simular la compra de cualquiera de los 4 planes sobre un email ya registrado.</p>
+      <form class="admin-plan-form" id="admin-plan-form">
+        <input type="email" id="admin-plan-email" placeholder="Email del usuario" required />
+        <select id="admin-plan-select">
+          <option value="free">Free</option>
+          <option value="unica">Única</option>
+          <option value="mensual" selected>Mensual</option>
+          <option value="premium">Premium</option>
+        </select>
+        <input type="number" id="admin-plan-days" placeholder="Días de vigencia (mensual/premium, ej: 30)" min="1" max="3650" />
+        <input type="number" id="admin-plan-credits" placeholder="Créditos a sumar (única, ej: 1)" min="1" max="1000" />
+        <input type="text" id="admin-token-input" placeholder="X-Admin-Token (opcional, solo si el backend lo exige)" />
+        <button type="submit" class="primary accent-violet">Aplicar plan</button>
+      </form>
+      <div id="admin-plan-status" class="job-result"></div>
     </div>
   </section>
 
@@ -536,6 +643,8 @@
     selectedTrackedId: null,
     benchmarks: {},        // platform -> PlatformBenchmark (cacheado desde loadBenchmarks)
     selectedChannelId: null, // universal_id del canal con el detalle abierto en "Por canal"
+    token: null,   // JWT de sesión (localStorage "cac_token")
+    me: null,      // UserOut del usuario autenticado, o null si no hay sesión
   };
 
   // ---------------------------------------------------------------------
@@ -591,7 +700,14 @@
   }
 
   async function fetchJSON(url, options) {
-    const res = await fetch(url, options);
+    // Adjunta el JWT de sesión (si hay una activa) a toda llamada — los
+    // endpoints públicos (p. ej. /analytics/benchmarks) simplemente lo ignoran.
+    const opts = Object.assign({}, options);
+    const headers = Object.assign({}, opts.headers || {});
+    if (state.token && !headers.Authorization) headers.Authorization = `Bearer ${state.token}`;
+    opts.headers = headers;
+
+    const res = await fetch(url, opts);
     if (!res.ok) {
       let detail = res.statusText;
       try { const body = await res.json(); detail = body.message || JSON.stringify(body); } catch (e) {}
@@ -1322,6 +1438,7 @@
       `Historial de seguidores — ${tc ? (tc.label || tc.name || tc.handle || tc.native_id) : id}`;
     document.getElementById("history-sub").textContent = "Cargando…";
     document.getElementById("chart-history").innerHTML = "";
+    document.getElementById("premium-result").innerHTML = "";
     try {
       const data = await fetchJSON(`${API}/tracking/channels/${id}/history?days=90`);
       const points = data.snapshots.map(s => ({ label: fmtDate(s.snapshot_date), value: s.followers }));
@@ -1572,6 +1689,213 @@
   }
 
   // ---------------------------------------------------------------------
+  // Cuenta: autenticación (JWT) y plan de suscripción
+  // ---------------------------------------------------------------------
+  const PLAN_LABEL = { free: "Free", unica: "Única", mensual: "Mensual", premium: "Premium" };
+
+  function renderAccountUI() {
+    const chip = document.getElementById("account-chip");
+    const guestCard = document.getElementById("account-guest-card");
+    const summaryCard = document.getElementById("account-summary-card");
+
+    if (!state.me) {
+      chip.textContent = "Invitado";
+      guestCard.style.display = "block";
+      summaryCard.style.display = "none";
+      return;
+    }
+
+    const planKey = state.me.plan || "free";
+    chip.textContent = `${state.me.email} · ${PLAN_LABEL[planKey] || planKey}`;
+    guestCard.style.display = "none";
+    summaryCard.style.display = "block";
+
+    document.getElementById("account-email").textContent = state.me.email;
+    document.getElementById("account-plan").innerHTML =
+      `<span class="plan-badge ${planKey}">${PLAN_LABEL[planKey] || planKey}</span>`;
+    document.getElementById("account-active-until").textContent =
+      state.me.plan_active_until ? fmtDate(state.me.plan_active_until.slice(0, 10)) : "—";
+    document.getElementById("account-credits").textContent = fmtInt(state.me.report_credits);
+    document.getElementById("account-full-access").innerHTML =
+      state.me.has_full_stats_access ? statusBadge("within", "Sí") : statusBadge("below", "No");
+    document.getElementById("account-premium-access").innerHTML =
+      state.me.has_premium_access ? statusBadge("within", "Sí") : statusBadge("below", "No");
+  }
+
+  function setToken(token) {
+    state.token = token;
+    if (token) localStorage.setItem("cac_token", token);
+    else localStorage.removeItem("cac_token");
+  }
+
+  async function refreshMe() {
+    if (!state.token) { state.me = null; renderAccountUI(); return; }
+    try {
+      state.me = await fetchJSON(`${API}/auth/me`);
+    } catch (e) {
+      // Token vencido/inválido: se descarta en silencio, vuelve a "Invitado".
+      setToken(null);
+      state.me = null;
+    }
+    renderAccountUI();
+  }
+
+  async function doLogin(email, password) {
+    const statusEl = document.getElementById("login-status");
+    statusEl.style.color = "var(--text-muted)";
+    statusEl.textContent = "Iniciando sesión…";
+    try {
+      const data = await fetchJSON(`${API}/auth/login`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      setToken(data.access_token);
+      state.me = data.user;
+      statusEl.textContent = "";
+      document.getElementById("login-form").reset();
+      renderAccountUI();
+    } catch (e) {
+      statusEl.style.color = "var(--status-critical)";
+      statusEl.textContent = "No se pudo iniciar sesión: " + e.message;
+    }
+  }
+
+  async function doRegister(email, password) {
+    const statusEl = document.getElementById("register-status");
+    statusEl.style.color = "var(--text-muted)";
+    statusEl.textContent = "Creando cuenta…";
+    try {
+      const data = await fetchJSON(`${API}/auth/register`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      setToken(data.access_token);
+      state.me = data.user;
+      statusEl.textContent = "";
+      document.getElementById("register-form").reset();
+      renderAccountUI();
+    } catch (e) {
+      statusEl.style.color = "var(--status-critical)";
+      statusEl.textContent = "No se pudo crear la cuenta: " + e.message;
+    }
+  }
+
+  function doLogout() {
+    setToken(null);
+    state.me = null;
+    renderAccountUI();
+  }
+
+  async function doAdminSetPlan(email, plan, activeDays, addReportCredits, adminToken) {
+    const statusEl = document.getElementById("admin-plan-status");
+    statusEl.style.color = "var(--text-muted)";
+    statusEl.textContent = "Aplicando plan…";
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (adminToken) headers["X-Admin-Token"] = adminToken;
+      const payload = { email, plan };
+      if (activeDays) payload.active_days = activeDays;
+      if (addReportCredits) payload.add_report_credits = addReportCredits;
+
+      const updated = await fetchJSON(`${API}/auth/admin/set-plan`, {
+        method: "POST", headers, body: JSON.stringify(payload),
+      });
+      statusEl.style.color = "var(--status-good)";
+      statusEl.textContent = `✓ Plan de ${updated.email} actualizado a "${PLAN_LABEL[updated.plan] || updated.plan}".`;
+      // Si el email coincide con la sesión activa, refrescar su propio estado.
+      if (state.me && state.me.email === updated.email) {
+        state.me = updated;
+        renderAccountUI();
+      }
+    } catch (e) {
+      statusEl.style.color = "var(--status-critical)";
+      statusEl.textContent = "No se pudo aplicar el plan: " + e.message;
+    }
+  }
+
+  function initAuthTab() {
+    document.getElementById("login-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      doLogin(document.getElementById("login-email").value.trim(), document.getElementById("login-password").value);
+    });
+    document.getElementById("register-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      doRegister(document.getElementById("register-email").value.trim(), document.getElementById("register-password").value);
+    });
+    document.getElementById("logout-btn").addEventListener("click", doLogout);
+
+    const savedAdminToken = localStorage.getItem("cac_admin_token");
+    if (savedAdminToken) document.getElementById("admin-token-input").value = savedAdminToken;
+
+    document.getElementById("admin-plan-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const email = document.getElementById("admin-plan-email").value.trim();
+      const plan = document.getElementById("admin-plan-select").value;
+      const activeDays = parseInt(document.getElementById("admin-plan-days").value, 10) || null;
+      const addReportCredits = parseInt(document.getElementById("admin-plan-credits").value, 10) || null;
+      const adminToken = document.getElementById("admin-token-input").value.trim();
+      if (adminToken) localStorage.setItem("cac_admin_token", adminToken);
+      else localStorage.removeItem("cac_admin_token");
+      doAdminSetPlan(email, plan, activeDays, addReportCredits, adminToken || null);
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Premium: proyecciones de tendencia y recomendaciones por canal trackeado
+  // ---------------------------------------------------------------------
+  function renderProjections(data) {
+    if (!data.projections.length) {
+      return `<p class="empty-note">No hay suficiente historial semanal todavía para proyectar ninguna métrica.</p>`;
+    }
+    return data.projections.map(p => {
+      const rows = p.projections.map(pt =>
+        `<tr><td>+${pt.weeks_ahead} semana(s)</td><td>${fmtDate(pt.projected_date)}</td><td class="num">${fmtCompact(pt.projected_value)}</td></tr>`
+      ).join("");
+      return `<div style="margin-bottom:14px;">
+        <strong>${escapeHtml(p.field)}</strong>
+        <span class="card-sub" style="margin:0 0 6px;display:block;">Tendencia semanal: ${p.weekly_trend >= 0 ? "+" : ""}${fmtCompact(p.weekly_trend)}/semana · ${p.history_points} snapshot(s) usados</span>
+        <table class="projection-table"><thead><tr><th>Horizonte</th><th>Fecha</th><th class="num">Proyección</th></tr></thead><tbody>${rows}</tbody></table>
+        <p class="card-sub" style="margin:0;">${escapeHtml(p.confidence_note)}</p>
+      </div>`;
+    }).join("");
+  }
+
+  function renderRecommendations(data) {
+    if (!data.recommendations.length) return `<p class="empty-note">Sin recomendaciones.</p>`;
+    return data.recommendations.map(r => `
+      <div class="recommendation-item">
+        <span class="rec-priority ${escapeHtml(r.priority)}">${escapeHtml(r.priority)} · ${escapeHtml(r.metric)}</span>
+        <p class="rec-finding">${escapeHtml(r.finding)}</p>
+        <p class="rec-recommendation">${escapeHtml(r.recommendation)}</p>
+      </div>`).join("");
+  }
+
+  async function loadPremiumPanel(kind) {
+    const resultEl = document.getElementById("premium-result");
+    if (!state.selectedTrackedId) {
+      resultEl.innerHTML = `<p class="empty-note">Seleccioná un canal trackeado arriba primero.</p>`;
+      return;
+    }
+    resultEl.innerHTML = `<p class="empty-note">Cargando…</p>`;
+    try {
+      if (kind === "projections") {
+        const data = await fetchJSON(`${API}/premium/channels/${state.selectedTrackedId}/projections`);
+        resultEl.innerHTML = renderProjections(data);
+      } else {
+        const data = await fetchJSON(`${API}/premium/channels/${state.selectedTrackedId}/recommendations`);
+        resultEl.innerHTML = renderRecommendations(data);
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<p class="empty-note">No se pudo cargar (${escapeHtml(e.message)}). Esta función requiere iniciar sesión con un plan premium activo — ver pestaña "Cuenta".</p>`;
+    }
+  }
+
+  function initPremiumPanel() {
+    document.getElementById("premium-projections-btn").addEventListener("click", () => loadPremiumPanel("projections"));
+    document.getElementById("premium-recommendations-btn").addEventListener("click", () => loadPremiumPanel("recommendations"));
+  }
+
+  // ---------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------
   function initTabs() {
@@ -1626,8 +1950,15 @@
   initForm();
   initChannelsTableEvents();
   initTrackingTab();
+  initAuthTab();
+  initPremiumPanel();
   loadBenchmarks();
   loadTrackedChannels();
+
+  // Sesión persistida (localStorage): si había un token guardado, validarlo
+  // contra /auth/me y refrescar el estado de cuenta (plan, créditos, etc.).
+  state.token = localStorage.getItem("cac_token");
+  refreshMe();
 })();
 </script>
 </body>

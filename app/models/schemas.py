@@ -8,7 +8,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from app.models.domain import ContentFormat, ContentTier, Platform
+from app.models.domain import ContentFormat, ContentTier, Plan, Platform
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -330,3 +330,101 @@ class DailyJobResultOut(BaseModel):
     snapshots_created: int
     snapshots_updated: int
     errors: list[str]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Autenticación y planes de suscripción (free / única / mensual / premium)
+# ─────────────────────────────────────────────────────────────────────────
+
+# Regex simple de formato de email (evita agregar `email-validator` como
+# dependencia solo para esta validación básica de shape).
+_EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
+class UserRegisterRequest(BaseModel):
+    """Payload de POST /api/v1/auth/register. Toda cuenta nueva arranca en plan 'free'."""
+
+    email: str = Field(..., min_length=5, max_length=255, pattern=_EMAIL_PATTERN)
+    password: str = Field(..., min_length=8, max_length=200, description="Mínimo 8 caracteres")
+
+
+class UserLoginRequest(BaseModel):
+    """Payload de POST /api/v1/auth/login."""
+
+    email: str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=1, max_length=200)
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    plan: str
+    plan_active_until: Optional[datetime] = None
+    report_credits: int
+    is_admin: bool
+    has_full_stats_access: bool
+    has_premium_access: bool
+
+
+class TokenResponse(BaseModel):
+    """Respuesta de /auth/register y /auth/login: token de sesión + datos del usuario."""
+
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class AdminSetPlanRequest(BaseModel):
+    """
+    Payload de POST /api/v1/auth/admin/set-plan — protegido con
+    `X-Admin-Token` (igual que `/tracking/*`). Simula manualmente un
+    alta/cambio de plan sin pasarela de pago real conectada.
+    """
+
+    email: str = Field(..., min_length=5, max_length=255)
+    plan: Plan
+    active_days: Optional[int] = Field(
+        None, ge=1, le=3650, description="Vigencia en días para 'mensual'/'premium' (default 30 si se omite)",
+    )
+    add_report_credits: Optional[int] = Field(
+        None, ge=1, le=1000, description="Créditos de reporte a sumar para 'unica' (default 1 si se omite)",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Premium: proyecciones de tendencia y recomendaciones por métrica
+# ─────────────────────────────────────────────────────────────────────────
+
+class ProjectionPoint(BaseModel):
+    weeks_ahead: int
+    projected_date: date
+    projected_value: float
+
+
+class MetricProjection(BaseModel):
+    field: str
+    history_points: int
+    weekly_trend: float
+    projections: list[ProjectionPoint]
+    confidence_note: str
+
+
+class ChannelProjectionResponse(BaseModel):
+    meta: ExecutionMeta
+    tracked_channel_id: int
+    projections: list[MetricProjection]
+
+
+class RecommendationItem(BaseModel):
+    metric: str
+    priority: str
+    finding: str
+    recommendation: str
+
+
+class ChannelRecommendationResponse(BaseModel):
+    meta: ExecutionMeta
+    tracked_channel_id: int
+    recommendations: list[RecommendationItem]

@@ -8,11 +8,17 @@ Endpoints de orquestación de búsqueda multicanal (Diagrama 1, end-to-end).
                                                 menor por métrica
   GET  /api/v1/channels/discover/by-category -> "todos los temas", pero un ranking
                                                 independiente por cada categoría
+
+Todos los endpoints de este router requieren "toda la estadística": un
+usuario autenticado con plan 'unica' (con crédito disponible), 'mensual'
+o 'premium' activos (ver `app.api.deps.require_full_access` y
+`POST /api/v1/auth/{register,login}` / `/auth/admin/set-plan`).
 """
 import time
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.deps import require_full_access
 from app.core.config import get_settings
 from app.models.domain import Platform
 from app.models.schemas import (
@@ -33,7 +39,7 @@ from app.services.orchestrator import (
     flatten_channels,
 )
 
-router = APIRouter(tags=["search"])
+router = APIRouter(tags=["search"], dependencies=[Depends(require_full_access)])
 settings = get_settings()
 
 

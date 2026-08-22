@@ -8,11 +8,12 @@ configurado en el entorno — por defecto (uso local) quedan abiertos.
 """
 import time
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import verify_admin_token
 from app.core.config import get_settings
-from app.core.exceptions import ChannelNotFoundError, TrackedChannelNotFoundError, UnauthorizedError
+from app.core.exceptions import ChannelNotFoundError, TrackedChannelNotFoundError
 from app.db.session import get_session
 from app.models.schemas import (
     ChannelHistoryResponse,
@@ -42,11 +43,6 @@ router = APIRouter(prefix="/tracking", tags=["tracking"])
 settings = get_settings()
 
 _COLLECTORS = {Platform.YOUTUBE: YouTubeCollector, Platform.TIKTOK: TikTokCollector}
-
-
-async def verify_admin_token(x_admin_token: str | None = Header(default=None)) -> None:
-    if settings.ADMIN_TOKEN and x_admin_token != settings.ADMIN_TOKEN:
-        raise UnauthorizedError()
 
 
 def _snapshot_out(snapshot) -> ChannelSnapshotOut | None:

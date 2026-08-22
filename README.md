@@ -7,6 +7,12 @@ Normaliza canales de distintas plataformas bajo una Entidad Universal Canal
 desigualdad (Gini, Pareto), correlación (Spearman/Pearson) y detección de
 anomalías, todo servido vía FastAPI.
 
+El acceso a "toda la estadística" del sitio funciona por planes de
+suscripción (**free / única / mensual / premium** — ver [Planes de
+suscripción y autenticación](#planes-de-suscripción-y-autenticación)
+más abajo); premium además desbloquea proyecciones de tendencia y
+recomendaciones de política general por métrica.
+
 ## Quickstart
 
 ```bash
@@ -118,12 +124,25 @@ pytest -v
 | DELETE | `/api/v1/tracking/channels/{tracked_id}` | Baja lógica de un canal trackeado (conserva el historial ya tomado) |
 | GET | `/api/v1/tracking/channels/{tracked_id}/history?days=` | Historial de snapshots diarios de un canal trackeado |
 | POST | `/api/v1/tracking/run-daily-job` | Dispara el worker diario ahora mismo, sin esperar al scheduler |
+| POST | `/api/v1/auth/register` | Crear una cuenta (email + contraseña, arranca en plan 'free') → devuelve JWT de sesión |
+| POST | `/api/v1/auth/login` | Iniciar sesión → devuelve JWT de sesión |
+| GET | `/api/v1/auth/me` | Datos del usuario autenticado: plan, vigencia, créditos, accesos vigentes |
+| POST | `/api/v1/auth/admin/set-plan` | (Admin) Simular manualmente un alta/cambio de plan — sin pasarela de pago real |
+| GET | `/api/v1/premium/channels/{tracked_id}/projections` | **[Premium]** Proyección de tendencia por métrica (extrapolación lineal sobre el histórico semanal) |
+| GET | `/api/v1/premium/channels/{tracked_id}/recommendations` | **[Premium]** Recomendaciones de política general para mejorar cada métrica |
+
+> Nota: `POST /analyze`, `/channels/search`, `/channels/discover*` y todo
+> `/analytics/*` **excepto** `/analytics/benchmarks` requieren "toda la
+> estadística" (plan única con crédito disponible, mensual o premium
+> activos — ver la sección de planes más abajo).
 
 ### Métricas y benchmarks del medio
 
 Cada plataforma trae una ficha de referencia de industria (`/analytics/benchmarks`) con el rango típico de Engagement Rate publicado (YouTube 1.5%–3.5%, TikTok 4.0%–9.0%), su fórmula, métrica de retención, frecuencia de publicación esperable, vida útil del contenido y el riesgo de sesgo conocido en sus métricas crudas. Los endpoints que calculan un ER promedio (`/analyze`, `/channels/search`, `/analytics/distribution`, `/analytics/overview`) adjuntan automáticamente un objeto `benchmark` que indica si ese promedio cae **"below"**, **"within"** o **"above"** del rango de industria, y qué tan lejos (`delta_from_range_pct`).
 
 > Nota sobre el modo mock: la API pública de YouTube no expone "likes" agregados a nivel canal, así que el colector mock (y el real) aproximan `raw_interactions` solo con comentarios — por eso el ER de YouTube en modo mock suele salir "below" del benchmark. Es una limitación de la métrica cruda documentada en `normalizer.py`, no un bug.
+
+📖 **Manual completo de métricas** (qué es cada campo, cómo se calcula, qué endpoint la devuelve): [`docs/manual_metricas_es.md`](./docs/manual_metricas_es.md) · **Full metrics manual** (English): [`docs/manual_metricas_en.md`](./docs/manual_metricas_en.md)
 
 ### Ejemplo
 
@@ -153,25 +172,31 @@ app/
 ├── main.py                    # App FastAPI + rutas /dashboard, /favicon.ico + lifespan (init_db, scheduler)
 ├── static/
 │   └── dashboard.html         # Dashboard de una sola página (HTML/CSS/JS plano)
-├── api/v1/
-│   ├── endpoints/
-│   │   ├── search.py        # POST /analyze, GET /channels/search
-│   │   ├── statistics.py    # /analytics/{benchmarks,distribution,inequality,correlation,anomalies,overview}
-│   │   └── tracking.py      # /tracking/{channels,run-daily-job} — alta/baja + historial + disparo manual del worker
-│   └── router.py
+├── api/
+│   ├── deps.py                # Dependencias compartidas: X-Admin-Token, JWT (get_current_user), gating por plan
+│   └── v1/
+│       ├── endpoints/
+│       │   ├── auth.py       # /auth/{register,login,me,admin/set-plan} — autenticación + planes
+│       │   ├── search.py     # POST /analyze, GET /channels/search, /channels/discover* (requieren plan)
+│       │   ├── statistics.py # /analytics/{benchmarks,distribution,inequality,correlation,anomalies,overview}
+│       │   ├── tracking.py   # /tracking/{channels,run-daily-job} — alta/baja + historial + disparo manual del worker
+│       │   └── premium.py    # /premium/channels/{id}/{projections,recommendations} — solo plan premium
+│       └── router.py
 ├── core/
-│   ├── config.py             # Settings (Pydantic BaseSettings)
+│   ├── config.py             # Settings (Pydantic BaseSettings) — incluye JWT_SECRET_KEY/JWT_EXPIRE_MINUTES
 │   ├── exceptions.py         # Excepciones de dominio + handlers
+│   ├── security.py           # Hashing de contraseñas (bcrypt) + JWT de sesión (pyjwt)
 │   └── scheduler.py           # APScheduler: corre el worker diario 1 vez/día (hora configurable, UTC)
 ├── db/
-│   ├── models.py               # SQLAlchemy: TrackedChannel (dim_channels), ChannelMetricSnapshot (fact_channel_metrics_daily)
+│   ├── models.py               # SQLAlchemy: TrackedChannel, ChannelMetricSnapshot, User (email/plan/report_credits)
 │   └── session.py              # Engine async + sesiones (SQLite por default, Postgres opcional vía DATABASE_URL)
 ├── models/
-│   ├── domain.py              # Platform, ContentTier, ContentFormat (enums)
+│   ├── domain.py              # Platform, ContentTier, ContentFormat, Plan (enums)
 │   └── schemas.py             # UnifiedChannel + Request/Response schemas (Pydantic v2)
 └── services/
     ├── orchestrator.py        # Ingestion Hub: despacho concurrente + resumen
     ├── tracked_channels.py     # CRUD de canales trackeados + upsert idempotente de snapshots
+    ├── users.py                # CRUD de usuarios + simulación manual de cambio de plan (set_user_plan)
     ├── worker.py               # Worker diario: recorre canales activos, snapshotea, tolera errores por canal
     ├── collectors/
     │   ├── base.py             # Interfaz abstracta + generador de datos mock
@@ -183,7 +208,9 @@ app/
         ├── inequality.py       # Gini, Pareto alpha, top-10% share
         ├── correlation.py      # Spearman/Pearson
         ├── anomalies.py        # Regla: seguidores>=P75 AND NER < Q1-1.5*IQR
-        └── benchmarks.py       # Métricas del medio: referencia de industria por plataforma
+        ├── benchmarks.py       # Métricas del medio: referencia de industria por plataforma
+        ├── projections.py      # [Premium] Extrapolación lineal simple sobre snapshots semanales
+        └── recommendations.py  # [Premium] Reglas: benchmark + tendencia -> recomendaciones por métrica
 ```
 
 ### Seguimiento (persistencia + worker)
@@ -223,6 +250,51 @@ toda la persistencia pasa por `get_session()`/`get_session_ctx()`.
 Los endpoints de escritura de `/tracking/*` (alta, baja, disparo manual)
 quedan abiertos por default (uso local/desarrollo); si configurás
 `ADMIN_TOKEN`, hay que mandar el header `X-Admin-Token: <valor>` en cada uno.
+
+## Planes de suscripción y autenticación
+
+El sitio funciona por planes de suscripción — arquitectura completa y
+funcional, **sin pasarela de pago real conectada todavía** (Mercado
+Pago/Stripe quedan pendientes; este es un proyecto universitario y la
+consigna fue dejar lista la arquitectura de niveles, no el cobro real).
+
+| Plan | Acceso | Cómo funciona |
+|---|---|---|
+| `free` | Sin acceso a "toda la estadística" (solo `/analytics/benchmarks`, referencia estática, público) | Plan por defecto al registrarse |
+| `unica` | Acceso puntual: consume 1 "crédito de reporte" por cada endpoint de estadística consultado | No es continuo — cada `report_credits` habilita una sola consulta |
+| `mensual` | Acceso continuo a **toda la estadística** del sitio: métricas nacionales e internacionales, incluidas las que no se miden en Argentina/Latinoamérica | Continuo mientras `plan_active_until` no venza |
+| `premium` | Todo lo de `mensual` **+ proyecciones de tendencia + recomendaciones de política general** por métrica (`/premium/*`) | Continuo mientras `plan_active_until` no venza |
+
+**Autenticación** (armada desde cero, sin proveedor externo): `POST
+/auth/register` / `POST /auth/login` devuelven un JWT de sesión
+(`app/core/security.py`, firmado con `JWT_SECRET_KEY` — **cambiar este
+valor en `.env` para cualquier uso más allá de desarrollo local**);
+mandarlo como `Authorization: Bearer <token>` en los endpoints que lo
+requieran. `GET /auth/me` devuelve el plan vigente y los accesos
+calculados (`has_full_stats_access`, `has_premium_access`).
+
+**Simular un cambio de plan** (sin cobro real): `POST
+/auth/admin/set-plan` (protegido con `X-Admin-Token`, igual que
+`/tracking/*`) fija a mano el plan de cualquier usuario ya registrado —
+`{"email": "...", "plan": "premium", "active_days": 30}` para
+`mensual`/`premium`, o `{"email": "...", "plan": "unica",
+"add_report_credits": 3}` para sumar créditos de reporte. Es también la
+pestaña **"Cuenta"** del dashboard (login/registro + este mismo
+formulario). El día que se conecte un procesador de pagos real, alcanza
+con que su webhook llame a `set_user_plan()` en
+`app/services/users.py` — el resto del sistema (gating de endpoints, JWT,
+dashboard) no necesita cambios.
+
+**Proyecciones** (`GET /premium/channels/{id}/projections`): extrapolación
+lineal simple (mínimos cuadrados, `numpy.polyfit`, sin IA) sobre el
+histórico de snapshots semanales de un canal trackeado — mejora sola a
+medida que el worker semanal acumula más datos (necesita al menos 3
+snapshots). **Recomendaciones** (`GET
+/premium/channels/{id}/recommendations`): motor de reglas fijas (no IA
+generativa) que traduce el benchmark de industria (`/analytics/benchmarks`)
+y la tendencia de seguidores en sugerencias accionables por métrica. Ver
+`docs/manual_metricas_es.md` / `manual_metricas_en.md` para el detalle
+completo de ambas.
 
 ## Límites a tener en cuenta
 
