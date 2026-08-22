@@ -32,6 +32,7 @@ settings = get_settings()
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+DOCS_DIR = BASE_DIR.parent / "docs"
 
 
 @asynccontextmanager
@@ -79,6 +80,27 @@ async def dashboard() -> FileResponse:
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon() -> FileResponse:
     return FileResponse(STATIC_DIR / "favicon.ico")
+
+
+@app.get(
+    "/manual/es", tags=["docs"], summary="Manual de métricas explicadas (Español)", include_in_schema=False,
+)
+async def manual_es() -> FileResponse:
+    """
+    Sirve `docs/manual_metricas_es.md` — el manual, en texto plano
+    Markdown, no vive dentro del dashboard (que es solo HTML/JS/CSS
+    contra la API): esta ruta es un atajo para abrirlo con un clic desde
+    ahí en vez de tener que ir a buscarlo en el explorador de archivos.
+    """
+    return FileResponse(DOCS_DIR / "manual_metricas_es.md", media_type="text/markdown; charset=utf-8")
+
+
+@app.get(
+    "/manual/en", tags=["docs"], summary="Metrics manual (English)", include_in_schema=False,
+)
+async def manual_en() -> FileResponse:
+    """Sirve `docs/manual_metricas_en.md` — ver `manual_es()` arriba."""
+    return FileResponse(DOCS_DIR / "manual_metricas_en.md", media_type="text/markdown; charset=utf-8")
 
 
 @app.get("/", tags=["health"], summary="Health check")
