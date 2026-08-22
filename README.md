@@ -49,10 +49,18 @@ API por `fetch` (mismo origen, sin configurar nada de CORS). Cinco pestañas:
 - **Seguimiento diario** — alta/baja de canales trackeados (por ID nativo o
   @handle, plataforma abierta a YouTube o TikTok), tabla con su último snapshot
   (seguidores, NER, tier, fecha), botón "Correr job ahora" para disparar el
-  worker diario sin esperar al scheduler, y un mini gráfico de línea con el
-  historial de seguidores del canal seleccionado. Ver la sección
-  [Seguimiento diario (persistencia + worker)](#seguimiento-diario-persistencia--worker)
+  worker sin esperar al scheduler (semanal por default), y un mini gráfico de
+  línea con el historial de seguidores del canal seleccionado. Ver la sección
+  [Seguimiento (persistencia + worker)](#seguimiento-persistencia--worker)
   más abajo.
+
+En la pestaña **Por canal**, además de buscar por tema, el botón **"🌐 Todos
+los temas"** llama a `GET /channels/discover`: no pide una categoría, arma
+una lista de canales de temas bien distintos (música, gaming, noticias,
+tecnología, deportes, etc. — ver `YouTubeCollector.discover`) y la devuelve
+ya ordenada de mayor a menor por la métrica elegida (suscriptores, vistas,
+publicaciones o NER). Desde esa misma tabla, "+ Seguir" agrega cualquier
+canal al seguimiento semanal sin tener que darlo de alta a mano.
 
 Soporta modo claro/oscuro (automático según el sistema, con toggle manual que
 se recuerda en `localStorage`). Los gráficos son SVG dibujados a mano siguiendo
@@ -77,6 +85,7 @@ pytest -v
 |---|---|---|
 | POST | `/api/v1/analyze` | Pipeline completo: busca en YouTube + TikTok, normaliza y devuelve canales + resumen (con benchmark de industria por plataforma) |
 | GET | `/api/v1/channels/search?query=&platform=youtube\|tiktok\|all&limit=` | Búsqueda unificada |
+| GET | `/api/v1/channels/discover?platform=&limit=&sort_by=followers\|total_views\|total_posts\|normalized_er` | **Todos los temas** (sin categoría): candidatos de temas bien distintos, ordenados de mayor a menor por la métrica elegida |
 | GET | `/api/v1/analytics/benchmarks?platform=youtube\|tiktok\|all` | **Métricas del medio**: ficha de referencia de industria por plataforma (fórmula y rango de ER, retención, frecuencia de publicación típica, vida útil del contenido, riesgo de sesgo). No requiere `query`, no consulta APIs externas. |
 | GET | `/api/v1/analytics/distribution?query=&platform=youtube\|tiktok&limit=` | Mín/máx/rango, percentiles (P5/P10/P25/P75/P90/P95), IQR, desvío estándar, **coeficiente de variación**, skewness, kurtosis — más comparación contra el benchmark de industria |
 | GET | `/api/v1/analytics/inequality?query=&limit=` | Coeficiente de Gini, exponente de Pareto y participación del top 10%, comparando YouTube vs TikTok |
@@ -156,25 +165,32 @@ app/
         └── benchmarks.py       # Métricas del medio: referencia de industria por plataforma
 ```
 
-### Seguimiento diario (persistencia + worker)
+### Seguimiento (persistencia + worker)
 
 Además del pipeline en tiempo real (`/analyze`, `/analytics/*`), el sistema
-persiste una lista abierta de canales trackeados y les toma un snapshot diario:
+persiste una lista abierta de canales trackeados y les toma un snapshot
+periódico (semanal por default):
 
-1. **Alta manual** (dashboard o `POST /tracking/channels`): se resuelve el
-   canal contra la API/mock, se guarda en `dim_channels` (tabla
-   `tracked_channels`) y se toma un primer snapshot al instante — no hace
-   falta esperar a la corrida diaria para ver el primer dato.
-2. **Worker diario** (`app/services/worker.py`): agrupa los canales activos
-   por plataforma, los re-consulta (en lote cuando la API lo soporta) y
-   guarda un snapshot por canal en `fact_channel_metrics_daily` (tabla
-   `channel_metric_snapshots`). Es idempotente — correrlo dos veces el mismo
-   día actualiza en vez de duplicar — y tolerante a fallos por canal
-   individual (uno que falla no tira abajo el resto del lote).
-3. **Scheduler** (`app/core/scheduler.py`, APScheduler): corre el worker una
-   vez al día a la hora configurada (`DAILY_JOB_HOUR_UTC`/`DAILY_JOB_MINUTE_UTC`,
-   default 03:00 UTC). Se puede desactivar con `ENABLE_SCHEDULER=false` y
-   disparar el job vos mismo (cron externo, GitHub Actions, etc.) contra
+1. **Alta manual** (dashboard, botón "+ Seguir" en la pestaña "Por canal", o
+   `POST /tracking/channels`): se resuelve el canal contra la API/mock, se
+   guarda en `dim_channels` (tabla `tracked_channels`) y se toma un primer
+   snapshot al instante — no hace falta esperar a la corrida del scheduler
+   para ver el primer dato.
+2. **Worker** (`app/services/worker.py`, `run_daily_snapshot`): agrupa los
+   canales activos por plataforma, los re-consulta (en lote cuando la API lo
+   soporta) y guarda un snapshot por canal en `fact_channel_metrics_daily`
+   (tabla `channel_metric_snapshots`, una fila por canal/día). Es idempotente
+   — correrlo dos veces el mismo día actualiza en vez de duplicar — y
+   tolerante a fallos por canal individual (uno que falla no tira abajo el
+   resto del lote).
+3. **Scheduler** (`app/core/scheduler.py`, APScheduler): por default corre el
+   worker **una vez por semana** (`DAILY_JOB_DAY_OF_WEEK=mon`,
+   `DAILY_JOB_HOUR_UTC=9`, `DAILY_JOB_MINUTE_UTC=0` → lunes 09:00 UTC / 06:00
+   hora Argentina, que no tiene horario de verano). Para volver a una corrida
+   diaria, poner `DAILY_JOB_DAY_OF_WEEK=*`; `DAILY_JOB_DAY_OF_WEEK` acepta la
+   sintaxis de `APScheduler` `CronTrigger` (`mon`, `mon-fri`, `mon,wed,fri`,
+   etc.). Se puede desactivar con `ENABLE_SCHEDULER=false` y disparar el job
+   vos mismo (cron externo, GitHub Actions, etc.) contra
    `POST /tracking/run-daily-job`.
 
 Por default usa SQLite (`DATABASE_URL`, un único archivo `channel_analytics.db`

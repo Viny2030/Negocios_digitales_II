@@ -1,8 +1,12 @@
 """
-Scheduler del worker diario — APScheduler corriendo dentro del propio
-proceso de FastAPI (AsyncIOScheduler, reutiliza el event loop de uvicorn).
-Se arranca en el evento `startup` de `main.py` y se apaga en `shutdown`;
-no depende de ningún cron externo ni de un segundo proceso.
+Scheduler del worker de seguimiento — APScheduler corriendo dentro del
+propio proceso de FastAPI (AsyncIOScheduler, reutiliza el event loop de
+uvicorn). Se arranca en el evento `startup` de `main.py` y se apaga en
+`shutdown`; no depende de ningún cron externo ni de un segundo proceso.
+
+Por default corre 1 vez por semana (`DAILY_JOB_DAY_OF_WEEK`, default
+"mon") a la hora configurada — para volver a una corrida diaria, poner
+`DAILY_JOB_DAY_OF_WEEK=*` en el .env.
 
 Para producción real (múltiples réplicas del server) esto tendría que
 moverse a un scheduler externo compartido (Celery beat, cron + endpoint
@@ -42,12 +46,20 @@ def start_scheduler() -> AsyncIOScheduler | None:
         return _scheduler
 
     _scheduler = AsyncIOScheduler(timezone="UTC")
-    trigger = CronTrigger(hour=settings.DAILY_JOB_HOUR_UTC, minute=settings.DAILY_JOB_MINUTE_UTC)
+    trigger = CronTrigger(
+        day_of_week=settings.DAILY_JOB_DAY_OF_WEEK,
+        hour=settings.DAILY_JOB_HOUR_UTC,
+        minute=settings.DAILY_JOB_MINUTE_UTC,
+    )
     _scheduler.add_job(_job_wrapper, trigger, id="daily_channel_snapshot", replace_existing=True)
     _scheduler.start()
+    cadence = (
+        "todos los días" if settings.DAILY_JOB_DAY_OF_WEEK in ("*", "", None)
+        else f"cada '{settings.DAILY_JOB_DAY_OF_WEEK}'"
+    )
     logger.info(
-        "Scheduler iniciado: snapshot diario a las %02d:%02d UTC",
-        settings.DAILY_JOB_HOUR_UTC, settings.DAILY_JOB_MINUTE_UTC,
+        "Scheduler iniciado: snapshot %s a las %02d:%02d UTC",
+        cadence, settings.DAILY_JOB_HOUR_UTC, settings.DAILY_JOB_MINUTE_UTC,
     )
     return _scheduler
 

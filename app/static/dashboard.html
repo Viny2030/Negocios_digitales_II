@@ -268,6 +268,10 @@
   .track-form select { min-width: 110px; }
   .track-form input[type="text"] { min-width: 160px; flex: 1; }
   .track-form input#track-label { min-width: 140px; flex: 0 1 160px; }
+  .search-form select {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--page-plane); color: var(--text-primary); font-size: 13px;
+  }
   .job-result { font-size: 12px; color: var(--text-secondary); margin-top: 10px; }
   .job-result .job-errors { color: var(--status-critical); margin-top: 4px; }
   table.data-table tr.selected-row { background: var(--series-youtube-soft); }
@@ -295,8 +299,16 @@
     <div class="brand"><span class="brand-text">Channel Analytics<small>Dashboard — YouTube</small></span></div>
     <form class="search-form" id="search-form">
       <input type="text" id="query-input" placeholder="Temática a buscar (ej: fitness, gaming, cocina)" required />
-      <input type="number" id="limit-input" min="4" max="100" value="25" title="Canales por plataforma" />
+      <input type="number" id="limit-input" min="4" max="100" value="25" title="Cantidad de canales" />
       <button type="submit" class="primary" id="search-btn">Buscar</button>
+      <span class="card-sub" style="margin:0;">— o —</span>
+      <select id="discover-sort" title="Métrica para ordenar de mayor a menor">
+        <option value="followers">Suscriptores</option>
+        <option value="total_views">Vistas</option>
+        <option value="total_posts">Publicaciones</option>
+        <option value="normalized_er">NER %</option>
+      </select>
+      <button type="button" class="ghost" id="discover-btn" title="Junta canales de todos los temas (sin elegir categoría) y los ordena de mayor a menor por la métrica elegida">🌐 Todos los temas</button>
     </form>
     <button class="ghost" id="theme-toggle" title="Cambiar tema" type="button">◐</button>
   </div>
@@ -425,7 +437,7 @@
   <section id="tab-seguimiento" class="tab-panel">
     <div class="card card-accent violet">
       <h3>Agregar canal al seguimiento diario</h3>
-      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida diaria del worker (03:00 UTC por default). Por ahora solo YouTube — TikTok está deshabilitado hasta contar con credenciales con su Research API aprobada (ver README).</p>
+      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida semanal del worker (lunes 09:00 UTC / 06:00 Argentina por default, configurable). Por ahora solo YouTube — TikTok está deshabilitado hasta contar con credenciales con su Research API aprobada (ver README).</p>
       <form class="track-form" id="track-form">
         <select id="track-platform">
           <option value="youtube">YouTube</option>
@@ -782,7 +794,7 @@
     const plotW = W - padL - padR, plotH = H - padT - padB;
 
     if (!points.length) {
-      el.innerHTML = '<p class="empty-note">Sin snapshots todavía — corré el job diario o esperá a mañana.</p>';
+      el.innerHTML = '<p class="empty-note">Sin snapshots todavía — corré el job ahora o esperá a la próxima corrida semanal.</p>';
       return;
     }
     if (points.length === 1) {
@@ -1404,6 +1416,43 @@
   }
 
   // ---------------------------------------------------------------------
+  // Descubrir "todos los temas" (sin categoría), ordenado por métrica
+  // ---------------------------------------------------------------------
+  async function runDiscover(limit, sortBy) {
+    const SORT_LABEL = {
+      followers: "suscriptores", total_views: "vistas",
+      total_posts: "publicaciones", normalized_er: "NER %",
+    };
+    setBanner("loading", `Descubriendo canales de todos los temas, ordenados por ${SORT_LABEL[sortBy] || sortBy}…`);
+    document.getElementById("discover-btn").disabled = true;
+    try {
+      const res = await fetchJSON(`${API}/channels/discover?limit=${limit}&sort_by=${sortBy}`);
+      state.channels = res.channels.map(c => ({ ...c, _anomalyReason: null }));
+      state.sortKey = sortBy;
+      state.sortDir = "desc";
+
+      document.getElementById("canales-empty").style.display = "none";
+      document.getElementById("canales-content").style.display = "block";
+      renderChannelsTable();
+
+      // Cambia a la pestaña "Por canal", que es donde tiene sentido ver
+      // esta lista (no depende de un tema puntual, así que no alimenta el
+      // resumen agregado ni "Por temática", pensados para una sola búsqueda).
+      document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      document.querySelector('nav.tabs button[data-tab="canales"]').classList.add("active");
+      document.getElementById("tab-canales").classList.add("active");
+
+      const total = res.channels.length;
+      setBanner(total ? "" : "empty", total ? "" : "No se encontraron canales.");
+    } catch (e) {
+      setBanner("error", "Error: " + e.message);
+    } finally {
+      document.getElementById("discover-btn").disabled = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------
   function initTabs() {
@@ -1439,6 +1488,11 @@
       const platforms = ["youtube"];
       const limit = Math.max(4, Math.min(100, parseInt(document.getElementById("limit-input").value, 10) || 25));
       runSearch(query, platforms, limit);
+    });
+    document.getElementById("discover-btn").addEventListener("click", () => {
+      const limit = Math.max(4, Math.min(100, parseInt(document.getElementById("limit-input").value, 10) || 25));
+      const sortBy = document.getElementById("discover-sort").value;
+      runDiscover(limit, sortBy);
     });
   }
 

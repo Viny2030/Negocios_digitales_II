@@ -55,13 +55,23 @@ class Settings(BaseSettings):
     # Cambiar a postgresql+asyncpg://... para usar el servicio de docker-compose.
     DATABASE_URL: str = "sqlite+aiosqlite:///./channel_analytics.db"
 
-    # --- Worker diario (dim_channels / fact_channel_metrics_daily) ---
+    # --- Worker de seguimiento (dim_channels / fact_channel_metrics_daily) ---
     ENABLE_SCHEDULER: bool = True
-    DAILY_JOB_HOUR_UTC: int = 3
+    # Por default corre 1 vez por semana: lunes 09:00 UTC (06:00 hora Argentina,
+    # UTC-3 todo el año, sin horario de verano). `DAILY_JOB_DAY_OF_WEEK` acepta
+    # la sintaxis de APScheduler CronTrigger ("mon".."sun", "mon-fri", "*" para
+    # correr todos los días, etc.) — poner "*" para volver a una corrida diaria.
+    DAILY_JOB_DAY_OF_WEEK: str = "mon"
+    DAILY_JOB_HOUR_UTC: int = 9
     DAILY_JOB_MINUTE_UTC: int = 0
     # Si se define, los endpoints /api/v1/tracking/* exigen este valor en el
     # header 'X-Admin-Token'. Vacío/None = sin protección (uso local).
     ADMIN_TOKEN: Optional[str] = None
+
+    # --- Descubrimiento multi-tema (GET /channels/discover) ---
+    # Región usada para resolver "trending" de YouTube (videos.list chart=
+    # mostPopular) al descubrir canales sin pedir una categoría/tema puntual.
+    DISCOVER_REGION_CODE: str = "AR"
 
 
 @lru_cache

@@ -6,7 +6,7 @@ de `search.py` y `statistics.py`, evitando duplicar lógica de orquestación.
 """
 import asyncio
 
-from app.core.exceptions import UnsupportedPlatformError
+from app.core.exceptions import InsufficientDataError, UnsupportedPlatformError
 from app.models.domain import Platform
 from app.models.schemas import PlatformSummary, UnifiedChannel
 from app.services.analytics.benchmarks import compare_to_benchmark
@@ -21,6 +21,14 @@ _COLLECTORS: dict[Platform, type[BaseCollector]] = {
 }
 
 SUPPORTED_PLATFORMS: list[Platform] = [Platform.YOUTUBE, Platform.TIKTOK]
+
+# Métricas por las que se puede ordenar de mayor a menor en /channels/discover.
+DISCOVER_SORT_FIELDS: dict[str, str] = {
+    "followers": "followers",
+    "total_views": "total_views",
+    "total_posts": "total_posts",
+    "normalized_er": "normalized_er",
+}
 
 
 def resolve_platforms(requested: list[Platform]) -> list[Platform]:
@@ -89,3 +97,48 @@ def flatten_channels(channels_by_platform: dict[Platform, list[UnifiedChannel]])
     for channels in channels_by_platform.values():
         flat.extend(channels)
     return flat
+
+
+async def _discover_and_normalize(
+    platform: Platform, limit: int, sort_by: str
+) -> list[UnifiedChannel]:
+    collector_cls = _COLLECTORS[platform]
+    collector = collector_cls()
+    raw_results = await collector.discover(limit=limit)
+    channels = normalize_channels(raw_results, platform)
+
+    # `discover()` puede devolver el mismo canal más de una vez (aparece en
+    # el trending de más de una categoría, o en más de un tema semilla del
+    # fallback mock) — se deduplica por universal_id antes de ordenar.
+    seen: set[str] = set()
+    deduped: list[UnifiedChannel] = []
+    for channel in channels:
+        if channel.universal_id in seen:
+            continue
+        seen.add(channel.universal_id)
+        deduped.append(channel)
+
+    deduped.sort(key=lambda c: getattr(c, sort_by), reverse=True)
+    return deduped[:limit]
+
+
+async def discover_unified_channels(
+    platforms: list[Platform], limit: int, sort_by: str = "followers"
+) -> dict[Platform, list[UnifiedChannel]]:
+    """
+    Ingestion Hub para "todos los temas" (sin buscar por categoría/tema
+    puntual, ver GET /api/v1/channels/discover): despacha `discover()` a
+    cada colector en paralelo, normaliza, deduplica y devuelve los canales
+    de cada plataforma ordenados de mayor a menor por `sort_by`.
+    """
+    if sort_by not in DISCOVER_SORT_FIELDS:
+        raise InsufficientDataError(
+            f"'{sort_by}' no es una métrica válida para ordenar. "
+            f"Opciones: {', '.join(DISCOVER_SORT_FIELDS)}"
+        )
+
+    resolved_platforms = resolve_platforms(platforms)
+    tasks = [_discover_and_normalize(platform, limit, sort_by) for platform in resolved_platforms]
+    results_per_platform = await asyncio.gather(*tasks)
+
+    return dict(zip(resolved_platforms, results_per_platform))

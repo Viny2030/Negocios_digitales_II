@@ -21,6 +21,24 @@ from app.services.collectors.base import BaseCollector, RawChannelData
 
 settings = get_settings()
 
+# IDs de categoría de YouTube (`videoCategoryId`) usados por `discover()`
+# para armar una foto de "todos los temas" sin que el usuario tenga que
+# elegir un tema puntual. Cubren los géneros más disímiles a propósito
+# (música, gaming, noticias, ciencia/tecnología, etc.) para maximizar la
+# diversidad de nichos en una sola pasada.
+DISCOVER_CATEGORY_IDS: list[str] = [
+    "10",  # Música
+    "20",  # Gaming
+    "24",  # Entretenimiento
+    "25",  # Noticias y política
+    "17",  # Deportes
+    "28",  # Ciencia y tecnología
+    "27",  # Educación
+    "23",  # Comedia
+    "26",  # Estilo de vida (Howto & Style)
+    "1",   # Cine y animación
+]
+
 
 class YouTubeCollector(BaseCollector):
     platform = Platform.YOUTUBE
@@ -77,6 +95,63 @@ class YouTubeCollector(BaseCollector):
                 if items:
                     results.append(items[0])
             return results
+
+    async def discover(self, limit: int, region_code: str | None = None) -> list[RawChannelData]:
+        """
+        Arma una foto de "todos los temas" para GET /api/v1/channels/discover,
+        sin pedirle al usuario que elija una categoría: recorre los videos
+        "mostPopular" (trending) de YouTube por cada categoría en
+        `DISCOVER_CATEGORY_IDS`, junta los canales dueños de esos videos
+        (deduplicados) y trae sus estadísticas en lote.
+
+        Mucho más barato en cuota que buscar tema por tema con `search.list`
+        (100 unidades/llamada): `videos.list` cuesta 1 unidad/llamada, así
+        que recorrer las ~10 categorías cuesta ~10 unidades, más ~1 unidad
+        cada 50 canales en `channels.list`. El caller (orchestrator) es quien
+        ordena de mayor a menor por la métrica elegida y recorta a `limit`;
+        acá se junta la mayor variedad posible de candidatos.
+        """
+        if not await self.is_configured():
+            if settings.USE_MOCK_DATA_IF_NO_CREDENTIALS:
+                # Sin credenciales no hay "trending" real: cae al fallback
+                # genérico de BaseCollector (múltiples búsquedas mock por tema).
+                return await super().discover(limit)
+            raise PlatformAPIError("youtube", "YOUTUBE_API_KEY no configurada")
+
+        region = region_code or settings.DISCOVER_REGION_CODE
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            channel_ids = await self._discover_trending_channel_ids(client, region)
+            if not channel_ids:
+                return []
+            return await self._fetch_channels_batch(client, channel_ids)
+
+    async def _discover_trending_channel_ids(self, client: httpx.AsyncClient, region_code: str) -> list[str]:
+        seen: set[str] = set()
+        ordered_ids: list[str] = []
+        for category_id in DISCOVER_CATEGORY_IDS:
+            params = {
+                "part": "snippet",
+                "chart": "mostPopular",
+                "regionCode": region_code,
+                "videoCategoryId": category_id,
+                "maxResults": 50,
+                "key": self.api_key,
+            }
+            resp = await client.get(f"{self.base_url}/videos", params=params)
+            if resp.status_code == 403 and "quota" in resp.text.lower():
+                # Sin cuota para seguir: devolvemos lo que ya se juntó en vez
+                # de tirar abajo todo el descubrimiento.
+                break
+            if resp.status_code >= 400:
+                # Una categoría puede no tener "mostPopular" en esa región
+                # (o el parámetro no ser válido ahí) — se sigue con el resto.
+                continue
+            for item in resp.json().get("items", []):
+                channel_id = item.get("snippet", {}).get("channelId")
+                if channel_id and channel_id not in seen:
+                    seen.add(channel_id)
+                    ordered_ids.append(channel_id)
+        return ordered_ids
 
     # ------------------------------------------------------------------
     # Llamadas reales a la API

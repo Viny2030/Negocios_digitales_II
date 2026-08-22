@@ -7,6 +7,7 @@ origen. La homogeneización ocurre después, en `services/analytics/normalizer.p
 Mantener esta capa desacoplada es lo que permite agregar Instagram, Twitch,
 Telegram, etc. en el futuro sin tocar el motor estadístico.
 """
+import asyncio
 import random
 from abc import ABC, abstractmethod
 from typing import Any
@@ -16,6 +17,15 @@ from app.models.domain import Platform
 
 # Tipo simple: cada colector devuelve una lista de dicts crudos.
 RawChannelData = dict[str, Any]
+
+# Semillas de tópicos usadas por el `discover()` genérico (ver más abajo) para
+# simular diversidad de nichos ("todos los temas", sin que el usuario elija
+# una categoría) cuando la plataforma no tiene un endpoint nativo de
+# trending multi-categoría al que engancharse (p. ej. TikTok — ver README).
+DEFAULT_DISCOVER_TOPICS: list[str] = [
+    "música", "gaming", "entretenimiento", "noticias", "deportes",
+    "tecnología", "educación", "humor", "cocina", "viajes",
+]
 
 
 class BaseCollector(ABC):
@@ -63,6 +73,31 @@ class BaseCollector(ABC):
             if raw is not None:
                 results.append(raw)
         return results
+
+    async def discover(self, limit: int) -> list[RawChannelData]:
+        """
+        Devuelve candidatos de "todos los temas" (sin que el llamador tenga
+        que elegir una categoría/tema puntual) — usado por
+        GET /api/v1/channels/discover para armar la base de canales a
+        trackear ordenados por métrica, en vez de buscar tema por tema.
+
+        Implementación genérica: reparte `limit` entre un set fijo de
+        tópicos semilla (`DEFAULT_DISCOVER_TOPICS`) y llama a `search()` por
+        cada uno en paralelo — funciona igual en modo real o mock porque
+        reutiliza `search()` tal cual. Un colector con un endpoint nativo de
+        "trending" multi-categoría (p. ej. YouTube `videos?chart=
+        mostPopular`) debe sobreescribir este método con esa estrategia más
+        precisa y barata en cuota; puede caer a esta implementación llamando
+        `await super().discover(limit)` cuando no haya credenciales.
+        """
+        per_topic = max(2, (limit // len(DEFAULT_DISCOVER_TOPICS)) + 1)
+        results_per_topic = await asyncio.gather(
+            *(self.search(topic, per_topic) for topic in DEFAULT_DISCOVER_TOPICS)
+        )
+        combined: list[RawChannelData] = []
+        for topic_results in results_per_topic:
+            combined.extend(topic_results)
+        return combined
 
     # ------------------------------------------------------------------
     # Utilidad compartida: generación de datos simulados (modo mock).
