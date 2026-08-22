@@ -13,6 +13,13 @@ Dependencias de FastAPI compartidas entre routers:
     que queda público por ser referencia estática).
   - `require_premium`: exige plan 'premium' activo — usado por `/premium/*`
     (proyecciones de tendencia y recomendaciones de política general).
+
+Interruptor `settings.REQUIRE_SUBSCRIPTION` (default `False`): con el
+gating desactivado (default), `require_full_access`/`require_premium` NO
+llaman siquiera a `get_current_user` — ni piden `Authorization`, para no
+romper el uso sin login que tenía el proyecto antes de agregar planes.
+Poner `REQUIRE_SUBSCRIPTION=true` en `.env` para exigir de verdad sesión +
+plan activo (p. ej. para una demo/entrega formal del sistema de planes).
 """
 from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,14 +83,21 @@ async def get_current_user_optional(
 
 
 async def require_full_access(
-    user: User = Depends(get_current_user),
+    authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
-) -> User:
+) -> User | None:
     """
     Exige acceso a "toda la estadística": suscripción 'mensual'/'premium'
     activa (por fecha), o plan 'unica' con al menos 1 crédito de reporte
     disponible (se consume 1 crédito por cada llamada bajo esta regla).
+
+    Si `settings.REQUIRE_SUBSCRIPTION` es `False` (default), no hace nada
+    — ni siquiera exige `Authorization` — y el endpoint queda abierto.
     """
+    if not settings.REQUIRE_SUBSCRIPTION:
+        return None
+
+    user = await get_current_user(authorization, session)
     if user.has_active_subscription:
         return user
     if user.plan == "unica" and user.report_credits > 0:
@@ -92,8 +106,18 @@ async def require_full_access(
     raise SubscriptionRequiredError()
 
 
-async def require_premium(user: User = Depends(get_current_user)) -> User:
-    """Exige plan 'premium' activo (proyecciones de tendencia y recomendaciones)."""
+async def require_premium(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> User | None:
+    """
+    Exige plan 'premium' activo (proyecciones de tendencia y recomendaciones).
+    Igual que `require_full_access`: sin efecto si `REQUIRE_SUBSCRIPTION=False`.
+    """
+    if not settings.REQUIRE_SUBSCRIPTION:
+        return None
+
+    user = await get_current_user(authorization, session)
     if not user.has_premium_access:
         raise PremiumRequiredError()
     return user

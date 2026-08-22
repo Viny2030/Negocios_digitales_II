@@ -258,6 +258,16 @@ funcional, **sin pasarela de pago real conectada todavía** (Mercado
 Pago/Stripe quedan pendientes; este es un proyecto universitario y la
 consigna fue dejar lista la arquitectura de niveles, no el cobro real).
 
+> **Importante — `REQUIRE_SUBSCRIPTION` (default `False`)**: por default
+> la exigencia de plan está **desactivada**: podés registrarte, loguearte
+> y simular planes desde la pestaña "Cuenta" del dashboard, pero
+> `/analyze`, `/channels/*` y `/analytics/*` (excepto `/benchmarks`)
+> funcionan igual **sin login**, como antes de agregar suscripciones — no
+> hace falta crear una cuenta para usar el dashboard en el día a día.
+> Poner `REQUIRE_SUBSCRIPTION=true` en `.env` (y reiniciar el server) para
+> que esos endpoints exijan de verdad sesión + plan activo (p. ej. para
+> una demo o entrega formal de este sistema de planes).
+
 | Plan | Acceso | Cómo funciona |
 |---|---|---|
 | `free` | Sin acceso a "toda la estadística" (solo `/analytics/benchmarks`, referencia estática, público) | Plan por defecto al registrarse |

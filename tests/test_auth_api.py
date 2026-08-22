@@ -2,6 +2,13 @@
 Tests HTTP end-to-end (FastAPI TestClient) del flujo de autenticación y
 del gating por plan de suscripción sobre los endpoints de estadística.
 
+`settings.REQUIRE_SUBSCRIPTION` es `False` por default (ver
+`app/core/config.py`): con el gating desactivado, `/channels/*` y
+`/analytics/*` (salvo benchmarks) funcionan SIN login, para no romper el
+uso normal del dashboard. Los tests de gating de este archivo activan el
+interruptor a mano vía el fixture `require_subscription` (monkeypatch
+sobre `app.api.deps.settings`) — así se prueban ambos modos.
+
 El `TestClient` se instancia con `get_session` sobreescrito hacia un
 engine SQLite en memoria con `StaticPool` (una sola conexión compartida
 por TODAS las requests del test, para que lo que se crea en una llamada
@@ -17,6 +24,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+import app.api.deps as deps
 from app.db.models import Base
 from app.db.session import get_session
 from app.main import app
@@ -43,6 +51,12 @@ def client():
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def require_subscription(monkeypatch):
+    """Activa `REQUIRE_SUBSCRIPTION` solo para el test que lo pida."""
+    monkeypatch.setattr(deps.settings, "REQUIRE_SUBSCRIPTION", True)
 
 
 def _register(client, email="user@example.com", password="password123"):
@@ -81,17 +95,29 @@ def test_me_without_token_returns_401(client):
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
-def test_discover_requires_login(client):
+def test_discover_open_by_default_without_login(client):
+    """REQUIRE_SUBSCRIPTION=False (default): no hace falta login ni plan."""
+    assert client.get("/api/v1/channels/discover?limit=10").status_code == 200
+
+
+def test_premium_open_by_default_without_login(client):
+    r = client.get("/api/v1/premium/channels/999/projections")
+    # Pasa el gate de plan (no 401/402 porque el gating está apagado); el
+    # canal no existe -> 404.
+    assert r.status_code == 404
+
+
+def test_discover_requires_login_when_subscription_required(client, require_subscription):
     assert client.get("/api/v1/channels/discover?limit=10").status_code == 401
 
 
-def test_discover_blocked_for_free_plan_with_402(client):
+def test_discover_blocked_for_free_plan_with_402_when_subscription_required(client, require_subscription):
     token = _register(client, "free@example.com")["access_token"]
     r = client.get("/api/v1/channels/discover?limit=10", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 402
 
 
-def test_discover_allowed_after_admin_sets_mensual_plan(client):
+def test_discover_allowed_after_admin_sets_mensual_plan(client, require_subscription):
     token = _register(client, "mensual@example.com")["access_token"]
 
     admin = client.post("/api/v1/auth/admin/set-plan", json={"email": "mensual@example.com", "plan": "mensual"})
@@ -107,7 +133,7 @@ def test_admin_set_plan_unknown_email_returns_404(client):
     assert r.status_code == 404
 
 
-def test_unica_plan_consumes_one_report_credit_per_call(client):
+def test_unica_plan_consumes_one_report_credit_per_call(client, require_subscription):
     token = _register(client, "unica@example.com")["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -124,11 +150,11 @@ def test_unica_plan_consumes_one_report_credit_per_call(client):
     assert second.status_code == 402
 
 
-def test_benchmarks_endpoint_stays_public_without_login(client):
+def test_benchmarks_endpoint_stays_public_without_login(client, require_subscription):
     assert client.get("/api/v1/analytics/benchmarks").status_code == 200
 
 
-def test_premium_endpoints_require_premium_not_just_mensual(client):
+def test_premium_endpoints_require_premium_not_just_mensual(client, require_subscription):
     token = _register(client, "solomensual@example.com")["access_token"]
     client.post("/api/v1/auth/admin/set-plan", json={"email": "solomensual@example.com", "plan": "mensual"})
 
@@ -136,7 +162,7 @@ def test_premium_endpoints_require_premium_not_just_mensual(client):
     assert r.status_code == 402
 
 
-def test_premium_endpoints_allowed_for_premium_plan_but_404_for_unknown_channel(client):
+def test_premium_endpoints_allowed_for_premium_plan_but_404_for_unknown_channel(client, require_subscription):
     token = _register(client, "premiumuser@example.com")["access_token"]
     client.post("/api/v1/auth/admin/set-plan", json={"email": "premiumuser@example.com", "plan": "premium"})
 

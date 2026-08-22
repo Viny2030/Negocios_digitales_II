@@ -163,6 +163,7 @@
     background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
     border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 13px;
   }
+  button.ghost:disabled { opacity: 0.5; cursor: default; }
   #theme-toggle { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0; }
 
   nav.tabs { display: flex; gap: 4px; margin-top: 12px; }
@@ -177,6 +178,7 @@
   nav.tabs button[data-tab="benchmarks"].active { border-bottom-color: var(--accent-yellow); }
   nav.tabs button[data-tab="seguimiento"].active { border-bottom-color: var(--accent-violet); }
   nav.tabs button[data-tab="cuenta"].active { border-bottom-color: var(--accent-aqua); }
+  nav.tabs button[data-tab="manual"].active { border-bottom-color: var(--accent-yellow); }
 
   /* Franja de acento arriba de la tarjeta principal de cada pestaña — un
      detalle de color por sección en vez de todo en el mismo azul plano. */
@@ -332,6 +334,22 @@
   .recommendation-item .rec-recommendation { font-size: 13px; }
   .projection-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; }
   .projection-table th, .projection-table td { padding: 5px 8px; border-bottom: 1px solid var(--gridline); text-align: left; }
+
+  /* Manual de métricas (markdown renderizado in-page) */
+  .manual-content { max-width: 900px; line-height: 1.55; font-size: 14px; }
+  .manual-content h1 { font-size: 22px; margin: 0 0 12px; }
+  .manual-content h2 { font-size: 18px; margin: 28px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .manual-content h2:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  .manual-content h3 { font-size: 15px; margin: 18px 0 6px; }
+  .manual-content p { margin: 0 0 12px; color: var(--text-secondary); }
+  .manual-content blockquote { margin: 0 0 14px; padding: 8px 14px; border-left: 3px solid var(--accent-yellow); background: var(--page-plane); border-radius: 0 8px 8px 0; font-size: 13px; color: var(--text-secondary); }
+  .manual-content code { background: var(--page-plane); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+  .manual-content ul { margin: 0 0 14px; padding-left: 20px; color: var(--text-secondary); }
+  .manual-content li { margin-bottom: 4px; }
+  .manual-content table { width: 100%; border-collapse: collapse; margin: 0 0 18px; font-size: 13px; }
+  .manual-content th, .manual-content td { padding: 6px 10px; border-bottom: 1px solid var(--gridline); text-align: left; vertical-align: top; }
+  .manual-content th { color: var(--text-muted); font-size: 11px; font-weight: 600; }
+  .manual-content a { color: var(--series-youtube); }
 </style>
 </head>
 <body>
@@ -368,6 +386,7 @@
     <button data-tab="benchmarks">Métricas del medio</button>
     <button data-tab="seguimiento">Seguimiento diario</button>
     <button data-tab="cuenta">Cuenta</button>
+    <button data-tab="manual" style="margin-left:auto;">📖 Manual</button>
   </nav>
 </header>
 
@@ -437,7 +456,7 @@
             <tbody id="channels-tbody"></tbody>
           </table>
         </div>
-        <p class="card-sub" style="margin-top:8px;margin-bottom:0;">Hacé clic en una fila para ver el dashboard de ese canal.</p>
+        <p class="card-sub" style="margin-top:8px;margin-bottom:0;">Hacé clic en "🔍 Analizar" (o en cualquier parte de la fila que no sea el nombre) para ver el análisis particular de ese canal — métricas, benchmark, y proyección/recomendaciones premium si ya está en seguimiento.</p>
       </div>
 
       <div class="card card-accent aqua" id="channel-detail-card" style="display:none;">
@@ -459,6 +478,15 @@
           </div>
         </div>
         <div id="channel-detail-actions" style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"></div>
+
+        <div class="premium-panel">
+          <p class="card-sub" style="margin:0 0 8px;">📈 <strong>Premium</strong> — proyección de tendencia y recomendaciones de política general para este canal en particular (requiere plan premium activo y que el canal esté en seguimiento, ver pestaña "Cuenta").</p>
+          <div class="inline-actions">
+            <button type="button" class="ghost accent-violet" id="channel-detail-premium-projections-btn" disabled>Ver proyección</button>
+            <button type="button" class="ghost accent-violet" id="channel-detail-premium-recommendations-btn" disabled>Ver recomendaciones</button>
+          </div>
+          <div id="channel-detail-premium-result"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -490,7 +518,7 @@
       <p class="card-sub">
         Referencia de industria por plataforma (no depende de ninguna búsqueda) — fuente: <code>/api/v1/analytics/benchmarks</code>.
         Manual completo de todas las métricas (qué es cada campo, cómo se calcula, qué endpoint la devuelve):
-        <a href="/manual/es" target="_blank" rel="noopener">Español</a> · <a href="/manual/en" target="_blank" rel="noopener">English</a>
+        pestaña <a href="#" data-goto-tab="manual">📖 Manual</a>, arriba.
       </p>
       <div class="bench-grid" id="bench-grid"></div>
     </div>
@@ -615,6 +643,20 @@
         <button type="submit" class="primary accent-violet">Aplicar plan</button>
       </form>
       <div id="admin-plan-status" class="job-result"></div>
+    </div>
+  </section>
+
+  <section id="tab-manual" class="tab-panel">
+    <div class="card card-accent yellow">
+      <div class="filter-row" style="justify-content:space-between;">
+        <h3 style="margin:0;">Manual de métricas</h3>
+        <div class="inline-actions">
+          <button type="button" class="ghost accent-violet" id="manual-lang-es">Español</button>
+          <button type="button" class="ghost accent-violet" id="manual-lang-en">English</button>
+        </div>
+      </div>
+      <p class="card-sub">Qué es cada métrica, cómo se calcula y qué endpoint la devuelve — se lee acá mismo, sin salir del dashboard.</p>
+      <div id="manual-content" class="manual-content"><p class="empty-note">Cargando…</p></div>
     </div>
   </section>
 
@@ -1128,6 +1170,11 @@
       const followBtn = alreadyTracked
         ? `<span class="card-sub" style="margin:0;">✓ En seguimiento</span>`
         : `<button type="button" class="link-action" data-action="follow" data-id="${escapeHtml(c.universal_id)}">+ Seguir</button>`;
+      // Botón explícito para abrir el análisis del canal — hacer clic en el
+      // nombre abre YouTube en una pestaña nueva (es un link real), así que
+      // sin este botón la única forma de abrir el detalle era hacer clic en
+      // una zona "vacía" de la fila, poco descubrible.
+      const analyzeBtn = `<button type="button" class="link-action" data-action="analyze" data-id="${escapeHtml(c.universal_id)}">🔍 Analizar</button>`;
       return `<tr class="${selected}" data-selectable data-channel-id="${escapeHtml(c.universal_id)}">
         <td><span class="dot ${c.platform}"></span> ${PLATFORM_LABEL[c.platform] || c.platform}</td>
         <td>${nameCell}<div class="card-sub" style="margin:0;">${escapeHtml(c.handle || "")}</div></td>
@@ -1137,7 +1184,7 @@
         <td class="num">${fmtInt(c.total_posts)}</td>
         <td class="num">${fmtPct(c.normalized_er)}</td>
         <td>${anomaly}</td>
-        <td class="inline-actions">${followBtn}</td>
+        <td class="inline-actions">${analyzeBtn}${followBtn}</td>
       </tr>`;
     }).join("") || `<tr><td colspan="9" class="empty-note">Sin resultados</td></tr>`;
 
@@ -1149,6 +1196,9 @@
     });
     document.querySelectorAll('#channels-tbody [data-action="follow"]').forEach(btn => {
       btn.addEventListener("click", () => followChannelFromSearch(btn.getAttribute("data-id"), btn));
+    });
+    document.querySelectorAll('#channels-tbody [data-action="analyze"]').forEach(btn => {
+      btn.addEventListener("click", () => showChannelDetail(btn.getAttribute("data-id")));
     });
   }
 
@@ -1220,19 +1270,38 @@
         : c.normalized_er > bench.engagement_benchmark_max_pct ? "por encima del"
         : "dentro del";
       document.getElementById("channel-detail-ner-sub").textContent =
-        `NER ${fmtPct(c.normalized_er)} — ${status} rango típico de ${PLATFORM_LABEL[c.platform]} (${bench.engagement_benchmark_min_pct}–${bench.engagement_benchmark_max_pct}%).`;
+        `NER ${fmtPct(c.normalized_er)} — ${status} rango típico de ${PLATFORM_LABEL[c.platform]} (${bench.engagement_benchmark_min_pct}–${bench.engagement_benchmark_max_pct}%). `
+        + `Es un estándar internacional de la industria — no depende de Argentina/Latinoamérica ni de ninguna región puntual.`;
     } else {
       meterEl.innerHTML = "";
       document.getElementById("channel-detail-ner-sub").textContent = `NER ${fmtPct(c.normalized_er)}`;
     }
 
-    const alreadyTracked = state.tracked.some(tc => tc.platform === c.platform && tc.native_id === c.native_id);
-    document.getElementById("channel-detail-actions").innerHTML = alreadyTracked
+    const trackedEntry = state.tracked.find(tc => tc.platform === c.platform && tc.native_id === c.native_id);
+    document.getElementById("channel-detail-actions").innerHTML = trackedEntry
       ? `<span class="status-badge good">${iconGood()}Ya está en seguimiento diario</span>`
       : `<button type="button" class="primary accent-violet" id="channel-detail-follow-btn">+ Agregar a seguimiento diario</button>
          <span class="card-sub" id="channel-detail-follow-status" style="margin:0;"></span>`;
     const followBtn = document.getElementById("channel-detail-follow-btn");
     if (followBtn) followBtn.addEventListener("click", () => followChannelFromSearch(c.universal_id, followBtn));
+
+    // Panel premium (proyección + recomendaciones) para ESTE canal puntual:
+    // solo tiene sentido si ya está en seguimiento (necesita snapshots
+    // semanales) — si no, se avisa y los botones quedan deshabilitados.
+    const premiumProjBtn = document.getElementById("channel-detail-premium-projections-btn");
+    const premiumRecBtn = document.getElementById("channel-detail-premium-recommendations-btn");
+    const premiumResultEl = document.getElementById("channel-detail-premium-result");
+    premiumResultEl.innerHTML = "";
+    if (trackedEntry) {
+      premiumProjBtn.disabled = false;
+      premiumRecBtn.disabled = false;
+      premiumProjBtn.onclick = () => loadPremiumInto(trackedEntry.id, "channel-detail-premium-result", "projections");
+      premiumRecBtn.onclick = () => loadPremiumInto(trackedEntry.id, "channel-detail-premium-result", "recommendations");
+    } else {
+      premiumProjBtn.disabled = true;
+      premiumRecBtn.disabled = true;
+      premiumResultEl.innerHTML = `<p class="empty-note">Agregá este canal al seguimiento diario (botón de arriba) para desbloquear proyecciones y recomendaciones — necesitan historial semanal.</p>`;
+    }
   }
 
   // Agrega un canal al seguimiento. Genérico: recibe el objeto canal
@@ -1874,19 +1943,23 @@
       </div>`).join("");
   }
 
-  async function loadPremiumPanel(kind) {
-    const resultEl = document.getElementById("premium-result");
-    if (!state.selectedTrackedId) {
-      resultEl.innerHTML = `<p class="empty-note">Seleccioná un canal trackeado arriba primero.</p>`;
+  // `resultElId` deja reutilizar esta misma lógica desde dos lugares:
+  // el detalle de "Por canal" (channel-detail-premium-result) y
+  // "Seguimiento diario" (premium-result) — cada uno con su propio
+  // `trackedId` resuelto en el momento de mostrar ese canal.
+  async function loadPremiumInto(trackedId, resultElId, kind) {
+    const resultEl = document.getElementById(resultElId);
+    if (!trackedId) {
+      resultEl.innerHTML = `<p class="empty-note">Agregá este canal al seguimiento diario primero — proyecciones y recomendaciones necesitan historial semanal.</p>`;
       return;
     }
     resultEl.innerHTML = `<p class="empty-note">Cargando…</p>`;
     try {
       if (kind === "projections") {
-        const data = await fetchJSON(`${API}/premium/channels/${state.selectedTrackedId}/projections`);
+        const data = await fetchJSON(`${API}/premium/channels/${trackedId}/projections`);
         resultEl.innerHTML = renderProjections(data);
       } else {
-        const data = await fetchJSON(`${API}/premium/channels/${state.selectedTrackedId}/recommendations`);
+        const data = await fetchJSON(`${API}/premium/channels/${trackedId}/recommendations`);
         resultEl.innerHTML = renderRecommendations(data);
       }
     } catch (e) {
@@ -1895,8 +1968,126 @@
   }
 
   function initPremiumPanel() {
-    document.getElementById("premium-projections-btn").addEventListener("click", () => loadPremiumPanel("projections"));
-    document.getElementById("premium-recommendations-btn").addEventListener("click", () => loadPremiumPanel("recommendations"));
+    document.getElementById("premium-projections-btn").addEventListener("click", () =>
+      loadPremiumInto(state.selectedTrackedId, "premium-result", "projections"));
+    document.getElementById("premium-recommendations-btn").addEventListener("click", () =>
+      loadPremiumInto(state.selectedTrackedId, "premium-result", "recommendations"));
+  }
+
+  // ---------------------------------------------------------------------
+  // Manual de métricas: convierte el Markdown de docs/manual_metricas_*.md
+  // (servido crudo por /manual/es y /manual/en) a HTML in-page — sin
+  // librerías externas, un parser chico a medida de lo que usa el manual
+  // (encabezados, tablas, listas, blockquote, **negrita**, `code`, [links](url)).
+  // ---------------------------------------------------------------------
+  function mdInline(text) {
+    let out = escapeHtml(text);
+    out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return out;
+  }
+
+  function renderMarkdown(md) {
+    const lines = md.replace(/\r\n/g, "\n").split("\n");
+    const html = [];
+    let i = 0;
+
+    function isTableRow(line) { return /^\s*\|.*\|\s*$/.test(line); }
+    function isTableSeparator(line) { return /^\s*\|?[\s:|-]+\|?\s*$/.test(line) && line.includes("-"); }
+    function splitRow(line) {
+      const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+      return trimmed.split("|").map(cell => cell.trim());
+    }
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      if (!line.trim()) { i++; continue; }
+
+      // Encabezados: "# " / "## " / "### "
+      const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        html.push(`<h${level}>${mdInline(headingMatch[2])}</h${level}>`);
+        i++;
+        continue;
+      }
+
+      // Tabla: fila de header + fila separadora + filas de body
+      if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+        const headerCells = splitRow(line);
+        i += 2;
+        const bodyRows = [];
+        while (i < lines.length && isTableRow(lines[i])) { bodyRows.push(splitRow(lines[i])); i++; }
+        html.push("<table><thead><tr>" + headerCells.map(c => `<th>${mdInline(c)}</th>`).join("") + "</tr></thead><tbody>"
+          + bodyRows.map(r => "<tr>" + r.map(c => `<td>${mdInline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table>");
+        continue;
+      }
+
+      // Blockquote: líneas consecutivas que empiezan con ">"
+      if (/^>\s?/.test(line)) {
+        const quoteLines = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) { quoteLines.push(lines[i].replace(/^>\s?/, "")); i++; }
+        html.push(`<blockquote>${mdInline(quoteLines.join(" "))}</blockquote>`);
+        continue;
+      }
+
+      // Lista: líneas que empiezan con "- ", más sus líneas de continuación
+      // indentadas (el markdown de origen envuelve ítems largos en varias
+      // líneas de menos de ~80 columnas) — sin esto, cada línea de
+      // continuación se despegaba del <li> y quedaba como párrafo suelto.
+      if (/^-\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && (/^-\s+/.test(lines[i]) || (items.length && lines[i].trim() && /^\s/.test(lines[i])))) {
+          if (/^-\s+/.test(lines[i])) items.push(lines[i].replace(/^-\s+/, "").trim());
+          else items[items.length - 1] += " " + lines[i].trim();
+          i++;
+        }
+        html.push("<ul>" + items.map(it => `<li>${mdInline(it)}</li>`).join("") + "</ul>");
+        continue;
+      }
+
+      // Párrafo: junta líneas seguidas hasta la próxima línea en blanco
+      const paraLines = [];
+      while (i < lines.length && lines[i].trim() && !/^(#{1,3})\s/.test(lines[i]) && !/^>\s?/.test(lines[i]) && !/^-\s+/.test(lines[i]) && !isTableRow(lines[i])) {
+        paraLines.push(lines[i]);
+        i++;
+      }
+      if (paraLines.length) html.push(`<p>${mdInline(paraLines.join(" "))}</p>`);
+    }
+
+    return html.join("\n");
+  }
+
+  const manualCache = {};
+  async function loadManual(lang) {
+    document.getElementById("manual-lang-es").classList.toggle("accent-violet", lang === "es");
+    document.getElementById("manual-lang-en").classList.toggle("accent-violet", lang === "en");
+    const contentEl = document.getElementById("manual-content");
+    if (manualCache[lang]) { contentEl.innerHTML = manualCache[lang]; return; }
+    contentEl.innerHTML = `<p class="empty-note">Cargando…</p>`;
+    try {
+      const res = await fetch(`/manual/${lang}`);
+      if (!res.ok) throw new Error(res.statusText);
+      const md = await res.text();
+      manualCache[lang] = renderMarkdown(md);
+      contentEl.innerHTML = manualCache[lang];
+    } catch (e) {
+      contentEl.innerHTML = `<p class="empty-note">No se pudo cargar el manual: ${escapeHtml(e.message)}</p>`;
+    }
+  }
+
+  function initManualTab() {
+    document.getElementById("manual-lang-es").addEventListener("click", () => loadManual("es"));
+    document.getElementById("manual-lang-en").addEventListener("click", () => loadManual("en"));
+    // Links "pestaña 📖 Manual" desde otras secciones (p. ej. "Métricas del medio").
+    document.querySelectorAll("[data-goto-tab]").forEach(link => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        document.querySelector(`nav.tabs button[data-tab="${link.getAttribute("data-goto-tab")}"]`).click();
+      });
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -1956,8 +2147,10 @@
   initTrackingTab();
   initAuthTab();
   initPremiumPanel();
+  initManualTab();
   loadBenchmarks();
   loadTrackedChannels();
+  loadManual("es");
 
   // Sesión persistida (localStorage): si había un token guardado, validarlo
   // contra /auth/me y refrescar el estado de cuenta (plan, créditos, etc.).

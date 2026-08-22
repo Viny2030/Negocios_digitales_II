@@ -107,6 +107,14 @@ class Settings(BaseSettings):
     # Días de vigencia por defecto al simular una alta de 'mensual'/'premium'
     # vía POST /auth/admin/set-plan cuando no se especifica `active_days`.
     DEFAULT_PLAN_ACTIVE_DAYS: int = 30
+    # Interruptor general del gating por plan: en `False` (default), toda la
+    # arquitectura de cuentas/planes/premium queda armada y funcionando
+    # (podés registrarte, loguearte, simular planes, usar /premium/*), pero
+    # `/analyze`, `/channels/*` y `/analytics/*` (excepto benchmarks) NO
+    # exigen sesión ni plan activo — se comportan como antes de agregar
+    # suscripciones. Poner en `True` (en `.env`) para exigir de verdad un
+    # plan activo en esos endpoints (p. ej. para una demo/entrega formal).
+    REQUIRE_SUBSCRIPTION: bool = False
 
 
 @lru_cache
