@@ -18,6 +18,7 @@ from app.db.session import get_session
 from app.models.schemas import (
     ChannelHistoryResponse,
     ChannelSnapshotOut,
+    ChannelTypeOut,
     DailyJobResultOut,
     ExecutionMeta,
     TrackedChannelCreate,
@@ -30,6 +31,8 @@ from app.services.collectors.youtube import YouTubeCollector
 from app.services.tracked_channels import (
     create_tracked,
     deactivate_tracked,
+    get_channel_type,
+    get_or_create_channel_type_by_name,
     get_tracked,
     latest_snapshot,
     list_tracked,
@@ -60,10 +63,14 @@ def _snapshot_out(snapshot) -> ChannelSnapshotOut | None:
 
 async def _tracked_out(session: AsyncSession, tracked) -> TrackedChannelOut:
     snap = await latest_snapshot(session, tracked.id)
+    channel_type = (
+        await get_channel_type(session, tracked.channel_type_id) if tracked.channel_type_id else None
+    )
     return TrackedChannelOut(
         id=tracked.id, platform=tracked.platform, native_id=tracked.native_id, handle=tracked.handle,
         label=tracked.label, name=tracked.name, url=tracked.url, active=tracked.active,
         created_at=tracked.created_at, latest_snapshot=_snapshot_out(snap),
+        channel_type=ChannelTypeOut.model_validate(channel_type) if channel_type else None,
     )
 
 
@@ -79,6 +86,12 @@ async def add_tracked_channel(
     que el canal existe y traer sus metadatos reales, lo guarda como
     trackeado, y toma un primer snapshot de una — así no hay que esperar
     a la corrida diaria para ver el primer dato.
+
+    El tipo de canal (catálogo) es opcional: `channel_type_id` referencia
+    un tipo ya existente; `channel_type_name` (usado por el botón "+ Seguir"
+    de "Por categoría", que ya conoce el nombre de la categoría de YouTube)
+    lo busca por nombre o lo crea de una si no existe todavía. Si vienen
+    los dos, `channel_type_id` gana.
     """
     collector = _COLLECTORS[payload.platform]()
     raw = await collector.get_channel(payload.identifier)
@@ -87,9 +100,14 @@ async def add_tracked_channel(
 
     channel = normalize_channels([raw], payload.platform)[0]
 
+    channel_type_id = payload.channel_type_id
+    if channel_type_id is None and payload.channel_type_name:
+        channel_type = await get_or_create_channel_type_by_name(session, payload.channel_type_name)
+        channel_type_id = channel_type.id
+
     tracked = await create_tracked(
         session, platform=payload.platform, native_id=channel.native_id, handle=channel.handle,
-        label=payload.label, name=channel.name, url=channel.url,
+        label=payload.label, name=channel.name, url=channel.url, channel_type_id=channel_type_id,
     )
     await upsert_snapshot_from_channel(session, tracked.id, channel)
     return await _tracked_out(session, tracked)

@@ -74,6 +74,35 @@ class TrackedChannelNotFoundError(ChannelAnalyticsError):
         )
 
 
+class ChannelTypeNotFoundError(ChannelAnalyticsError):
+    """No existe ningún tipo de canal del catálogo con ese id."""
+
+    def __init__(self, type_id: int):
+        super().__init__(
+            f"No existe un tipo de canal con id={type_id}", status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+
+class DuplicateChannelTypeError(ChannelAnalyticsError):
+    """Ya existe un tipo de canal con ese nombre (comparación case-insensitive)."""
+
+    def __init__(self, name: str):
+        super().__init__(
+            f"Ya existe un tipo de canal llamado '{name}'", status_code=status.HTTP_409_CONFLICT,
+        )
+
+
+class ChannelTypeInUseError(ChannelAnalyticsError):
+    """No se puede borrar un tipo de canal mientras algún canal trackeado lo tenga asignado."""
+
+    def __init__(self, type_id: int, channel_count: int):
+        super().__init__(
+            f"El tipo de canal id={type_id} está asignado a {channel_count} canal(es) trackeado(s) — "
+            "reasigná esos canales a otro tipo antes de borrarlo",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+
 class UnauthorizedError(ChannelAnalyticsError):
     """Falta o es inválido el header X-Admin-Token (solo si ADMIN_TOKEN está configurado)."""
 

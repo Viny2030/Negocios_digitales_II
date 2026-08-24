@@ -141,12 +141,33 @@ class SearchResponse(BaseModel):
 # Responses: descubrimiento "por categoría" (sin mezclar temas entre sí)
 # ─────────────────────────────────────────────────────────────────────────
 
+class AnomalyFlag(BaseModel):
+    """
+    Definida acá arriba (antes de usarse en varios lados: `AnomalyResponse`,
+    `PlatformOverview` y `CategoryChannels`) porque Pydantic necesita la
+    clase ya declarada al momento de armar cada modelo que la referencia.
+    """
+
+    universal_id: str
+    name: str
+    platform: Platform
+    followers: int
+    normalized_er: float
+    reason: str
+
+
 class CategoryChannels(BaseModel):
     """Ranking de canales de una única categoría/tópico, ya ordenado por métrica."""
 
     category: str = Field(..., description="Clave interna de la categoría (ver `label` para el nombre legible)")
     label: str = Field(..., description="Nombre legible de la categoría/tópico")
     channel_count: int
+    total_followers: int = Field(0, description="Suma de seguidores de todos los canales de esta categoría")
+    avg_normalized_er: float = Field(0.0, description="ER promedio (NER %) de esta categoría")
+    anomalies: list[AnomalyFlag] = Field(
+        default_factory=list,
+        description="Canales de esta categoría con métricas potencialmente infladas (necesita >=4 canales en la categoría para calcularse)",
+    )
     channels: list[UnifiedChannel]
 
 
@@ -229,15 +250,6 @@ class CorrelationResponse(BaseModel):
     correlations: list[CorrelationPair]
 
 
-class AnomalyFlag(BaseModel):
-    universal_id: str
-    name: str
-    platform: Platform
-    followers: int
-    normalized_er: float
-    reason: str
-
-
 class AnomalyResponse(BaseModel):
     meta: ExecutionMeta
     platform: Platform
@@ -275,6 +287,54 @@ class OverviewResponse(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Catálogo de canales: tipos/taxonomía (YouTube + propios) y cantidades
+# ─────────────────────────────────────────────────────────────────────────
+
+class ChannelTypeCreate(BaseModel):
+    """Payload de POST /api/v1/catalog/types — crear un tipo de canal propio."""
+
+    name: str = Field(..., min_length=1, max_length=120, description="Nombre del tipo (ej: 'Finanzas personales')")
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class ChannelTypeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    slug: str
+    description: Optional[str] = None
+    is_custom: bool = Field(..., description="True = tipo propio creado a mano; False = categoría nativa de YouTube")
+    created_at: datetime
+
+
+class ChannelTypeListResponse(BaseModel):
+    meta: ExecutionMeta
+    types: list[ChannelTypeOut]
+
+
+class SetChannelTypeRequest(BaseModel):
+    """Payload de PATCH /api/v1/catalog/channels/{tracked_id}/type."""
+
+    channel_type_id: Optional[int] = Field(None, description="null = quitar el tipo asignado")
+
+
+class ChannelTypeCount(BaseModel):
+    """Cuántos canales trackeados hay de un tipo dado (o sin tipo asignado)."""
+
+    channel_type: Optional[ChannelTypeOut] = Field(None, description="None = canales sin tipo asignado todavía")
+    channel_count: int
+
+
+class CatalogSummaryResponse(BaseModel):
+    """Respuesta de GET /api/v1/catalog/summary — cantidades por tipo de canal."""
+
+    meta: ExecutionMeta
+    total_channels: int
+    by_type: list[ChannelTypeCount]
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Seguimiento diario: canales trackeados + snapshots (worker diario)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -287,6 +347,18 @@ class TrackedChannelCreate(BaseModel):
         description="ID nativo del canal (p. ej. 'UCxxxx' en YouTube) o @handle",
     )
     label: Optional[str] = Field(None, max_length=200, description="Etiqueta propia, opcional (ej: 'Competidor A')")
+    channel_type_id: Optional[int] = Field(
+        None, description="Id de un tipo de canal ya existente (ver GET /catalog/types)",
+    )
+    channel_type_name: Optional[str] = Field(
+        None, max_length=120,
+        description=(
+            "Alternativa a `channel_type_id`: nombre de un tipo de canal. Si ya existe (comparación "
+            "case-insensitive) se reusa; si no, se crea uno propio de una. Pensado para el botón "
+            "'+ Seguir' de 'Por categoría', que ya conoce el nombre de la categoría de YouTube. "
+            "Se ignora si `channel_type_id` viene seteado."
+        ),
+    )
 
 
 class ChannelSnapshotOut(BaseModel):
@@ -311,6 +383,7 @@ class TrackedChannelOut(BaseModel):
     active: bool
     created_at: datetime
     latest_snapshot: Optional[ChannelSnapshotOut] = None
+    channel_type: Optional[ChannelTypeOut] = None
 
 
 class TrackedChannelListResponse(BaseModel):

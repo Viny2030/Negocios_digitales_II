@@ -29,6 +29,7 @@ from app.models.schemas import (
     PlatformCategoryBreakdown,
     SearchResponse,
 )
+from app.services.analytics.anomalies import detect_anomalies
 from app.services.orchestrator import (
     DISCOVER_SORT_FIELDS,
     build_summary,
@@ -163,16 +164,29 @@ async def discover_channels_by_category(
         platforms=[platform], limit_per_category=limit_per_category, sort_by=sort_by,
     )
 
+    def _category_channels(category_key: str, p: Platform, channels: list) -> CategoryChannels:
+        n = len(channels)
+        total_followers = sum(c.followers for c in channels)
+        avg_er = round(sum(c.normalized_er for c in channels) / n, 4) if n else 0.0
+        # Igual que en /analytics/anomalies y /analytics/overview: necesita
+        # al menos 4 canales para estimar cuartiles de forma confiable —
+        # con menos, se omite en vez de fallar toda la categoría.
+        anomalies = detect_anomalies(channels) if n >= 4 else []
+        return CategoryChannels(
+            category=category_key,
+            label=category_label(p, category_key),
+            channel_count=n,
+            total_followers=total_followers,
+            avg_normalized_er=avg_er,
+            anomalies=anomalies,
+            channels=channels,
+        )
+
     platform_breakdowns = [
         PlatformCategoryBreakdown(
             platform=p,
             categories=[
-                CategoryChannels(
-                    category=category_key,
-                    label=category_label(p, category_key),
-                    channel_count=len(channels),
-                    channels=channels,
-                )
+                _category_channels(category_key, p, channels)
                 for category_key, channels in by_category.items()
             ],
         )

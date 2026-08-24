@@ -1,10 +1,12 @@
 """
 Modelos SQLAlchemy — capa de persistencia del worker diario.
 
-Dos tablas, calcadas del modelo conceptual del diseño original:
+Tres tablas, calcadas del modelo conceptual del diseño original más el
+catálogo de tipos de canal agregado después:
 
     dim_channels               -> TrackedChannel  (qué canales seguimos)
     fact_channel_metrics_daily -> ChannelMetricSnapshot (una fila por canal/día)
+    channel_types              -> ChannelType (taxonomía propia + categorías de YouTube)
 
 Un canal trackeado nunca se borra físicamente (soft delete vía `active`) para
 no perder el histórico de snapshots ya tomados. `ChannelMetricSnapshot` tiene
@@ -30,6 +32,31 @@ class Base(DeclarativeBase):
     pass
 
 
+class ChannelType(Base):
+    """
+    Tipo/categoría de canal para el catálogo (pestaña "Catálogo" del
+    dashboard) — pensado para ser flexible: arranca sembrado con las 15
+    categorías nativas de YouTube (`is_custom=False`, ver
+    `services/collectors/youtube.py::DISCOVER_CATEGORY_LABELS`) y se le
+    pueden sumar tipos propios de negocio en cualquier momento
+    (`is_custom=True`, vía `POST /api/v1/catalog/types`) sin tocar código
+    ni redesplegar nada.
+    """
+
+    __tablename__ = "channel_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    slug: Mapped[str] = mapped_column(String(140), unique=True, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # False = sembrado automáticamente desde una categoría de YouTube;
+    # True = creado a mano por el usuario (tipo de negocio propio).
+    is_custom: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    tracked_channels: Mapped[list["TrackedChannel"]] = relationship(back_populates="channel_type")
+
+
 class TrackedChannel(Base):
     """Un canal que el worker diario debe snapshotear (dim_channels)."""
 
@@ -45,10 +72,16 @@ class TrackedChannel(Base):
     url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Tipo de canal para el catálogo (opcional: un canal puede quedar sin
+    # clasificar). Nullable a propósito para no romper canales ya
+    # trackeados antes de agregar este campo (ver migración liviana en
+    # `db/session.py::init_db`).
+    channel_type_id: Mapped[int | None] = mapped_column(ForeignKey("channel_types.id"), nullable=True)
 
     snapshots: Mapped[list["ChannelMetricSnapshot"]] = relationship(
         back_populates="tracked_channel", cascade="all, delete-orphan", order_by="ChannelMetricSnapshot.snapshot_date"
     )
+    channel_type: Mapped["ChannelType | None"] = relationship(back_populates="tracked_channels")
 
     @property
     def universal_id(self) -> str:

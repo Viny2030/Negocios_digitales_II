@@ -1,8 +1,26 @@
+# Este workflow llama a un endpoint HTTP publico de la API para disparar
+# el job diario. Si la API SOLO corre local (docker-compose / uvicorn en
+# tu PC) este workflow no tiene forma de alcanzarla: los runners de GitHub
+# viven en la nube y no pueden resolver un hostname interno como
+# "channel-analytics-core" (el container_name de docker-compose), que es
+# justo lo que tirό el error "Could not resolve host".
+#
+# El job diario YA corre solo, sin este workflow, mientras la API este
+# levantada en tu maquina: ver app/core/scheduler.py (APScheduler,
+# arrancado en el startup de FastAPI). Con la app corriendo local no hace
+# falta nada mas.
+#
+# Dejo el trigger `schedule` deshabilitado (comentado) para que no siga
+# fallando todos los dias. Si en algun momento deployas la API a un
+# hosting publico (Render, Railway, Fly.io, un VPS, etc.), volve a activar
+# el cron de abajo y cargá el secret APP_BASE_URL con la URL PUBLICA de
+# ese deploy (ej: https://tu-api.onrender.com), no con el nombre del
+# container de docker-compose.
 name: Daily channel tracking job
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
+  # schedule:
+  #   - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 jobs:

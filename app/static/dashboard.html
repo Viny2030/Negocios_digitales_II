@@ -176,7 +176,7 @@
   nav.tabs button[data-tab="canales"].active { border-bottom-color: var(--accent-aqua); }
   nav.tabs button[data-tab="tematicas"].active { border-bottom-color: var(--accent-magenta); }
   nav.tabs button[data-tab="benchmarks"].active { border-bottom-color: var(--accent-yellow); }
-  nav.tabs button[data-tab="seguimiento"].active { border-bottom-color: var(--accent-violet); }
+  nav.tabs button[data-tab="catalogo"].active { border-bottom-color: var(--accent-violet); }
   nav.tabs button[data-tab="cuenta"].active { border-bottom-color: var(--accent-aqua); }
   nav.tabs button[data-tab="manual"].active { border-bottom-color: var(--accent-yellow); }
 
@@ -271,6 +271,15 @@
   .topic-row .topic-name { font-weight: 600; font-size: 13px; }
   .topic-row .topic-meta { font-size: 11px; color: var(--text-muted); }
   .topic-row button.remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; line-height: 1; }
+  /* Tipos de canal (pestaña "Catálogo") — mismo patrón visual que topic-row,
+     con acento violeta (el mismo que usaba "Seguimiento diario") en vez de
+     magenta, y una cantidad en vez de una hora. */
+  .type-row { display: flex; align-items: center; justify-content: space-between; background: var(--page-plane); border: 1px solid var(--border); border-left: 3px solid var(--accent-violet); border-radius: 8px; padding: 8px 12px; }
+  .type-row .type-name { font-weight: 600; font-size: 13px; }
+  .type-row .type-meta { font-size: 11px; color: var(--text-muted); }
+  .type-row .type-count { font-size: 13px; font-weight: 700; color: var(--text-secondary); min-width: 26px; text-align: right; }
+  .type-row button.remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; line-height: 1; }
+  .type-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--border); color: var(--text-secondary); white-space: nowrap; }
 
   .track-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
   .track-form select, .track-form input[type="text"] {
@@ -384,7 +393,7 @@
     <button data-tab="categorias">Por categoría</button>
     <button data-tab="tematicas">Por temática</button>
     <button data-tab="benchmarks">Métricas del medio</button>
-    <button data-tab="seguimiento">Seguimiento diario</button>
+    <button data-tab="catalogo">Catálogo</button>
     <button data-tab="cuenta">Cuenta</button>
     <button data-tab="manual" style="margin-left:auto;">📖 Manual</button>
   </nav>
@@ -479,6 +488,14 @@
         </div>
         <div id="channel-detail-actions" style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"></div>
 
+        <div id="channel-detail-type-row" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"></div>
+
+        <div id="channel-detail-history-section" style="margin-top:18px;display:none;">
+          <h3 style="font-size:13px;">Historial de seguidores</h3>
+          <p class="card-sub" id="channel-detail-history-sub"></p>
+          <div id="channel-detail-history"></div>
+        </div>
+
         <div class="premium-panel">
           <p class="card-sub" style="margin:0 0 8px;">📈 <strong>Premium</strong> — proyección de tendencia y recomendaciones de política general para este canal en particular (requiere plan premium activo y que el canal esté en seguimiento, ver pestaña "Cuenta").</p>
           <div class="inline-actions">
@@ -495,6 +512,14 @@
     <div id="categorias-empty" class="empty-note">Apretá "📊 Por categoría" arriba para ver un ranking independiente de cada tema (música, gaming, noticias, etc. — sin mezclarlos entre sí).</div>
     <div id="categorias-content" style="display:none;">
       <p class="card-sub" id="categorias-sub" style="margin-bottom:16px;"></p>
+
+      <div class="card card-accent aqua">
+        <h3>Comparativa entre categorías</h3>
+        <p class="card-sub">Para ver de un vistazo qué categorías concentran más seguidores o tienen mejor engagement promedio, antes de entrar al detalle de cada una abajo.</p>
+        <div id="chart-categorias-followers" style="margin-bottom:20px;"></div>
+        <div id="chart-categorias-er"></div>
+      </div>
+
       <div id="categorias-tables"></div>
     </div>
   </section>
@@ -524,16 +549,33 @@
     </div>
   </section>
 
-  <section id="tab-seguimiento" class="tab-panel">
+  <section id="tab-catalogo" class="tab-panel">
     <div class="card card-accent violet">
-      <h3>Agregar canal al seguimiento diario</h3>
-      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida semanal del worker (lunes 09:00 UTC / 06:00 Argentina por default, configurable). Por ahora solo YouTube — TikTok está deshabilitado hasta contar con credenciales con su Research API aprobada (ver README).</p>
+      <div class="filter-row" style="justify-content:space-between;">
+        <h3 style="margin:0;">Tipos de canal</h3>
+        <span class="card-sub" id="catalog-summary-label" style="margin:0;"></span>
+      </div>
+      <p class="card-sub">Combina las 15 categorías nativas de YouTube (precargadas solas al arrancar el backend) con tipos propios que podés crear en cualquier momento, sin tocar código — pensado para un catálogo de canales por tipo con libertad de ir sumando categorías de negocio propias. La cantidad de cada uno cuenta los canales <strong>activos</strong> en seguimiento con ese tipo asignado.</p>
+      <form class="track-form" id="type-form">
+        <input type="text" id="type-name" placeholder="Nombre del tipo nuevo (ej: Finanzas personales)" required maxlength="120" />
+        <input type="text" id="type-description" placeholder="Descripción (opcional)" />
+        <button type="submit" class="primary accent-violet" id="type-add-btn">+ Agregar tipo</button>
+      </form>
+      <div id="type-form-status" class="job-result"></div>
+      <div id="types-empty" class="empty-note">Todavía no hay tipos de canal cargados — agregá el primero arriba (o esperá a que el backend arranque una vez: siembra solo las 15 categorías de YouTube).</div>
+      <div class="topic-list" id="type-list" style="margin-top:10px;display:none;"></div>
+    </div>
+
+    <div class="card card-accent violet">
+      <h3>Agregar canal al seguimiento</h3>
+      <p class="card-sub">Se guarda en la base local y queda incluido en la corrida semanal del worker (lunes 09:00 UTC / 06:00 Argentina por default, configurable). Por ahora solo YouTube — TikTok está deshabilitado hasta contar con credenciales con su Research API aprobada (ver README). Asignarle un tipo de acá es opcional — también se puede hacer (o cambiar) después, desde el análisis del canal en "Por canal".</p>
       <form class="track-form" id="track-form">
         <select id="track-platform">
           <option value="youtube">YouTube</option>
         </select>
         <input type="text" id="track-identifier" placeholder="ID nativo (UCxxxx) o @handle" required />
         <input type="text" id="track-label" placeholder="Etiqueta (opcional, ej: Competidor A)" />
+        <select id="track-channel-type"><option value="">Sin tipo</option></select>
         <button type="submit" class="primary accent-violet" id="track-add-btn">Agregar canal</button>
       </form>
       <div id="track-form-status" class="job-result"></div>
@@ -549,7 +591,7 @@
           <button type="button" class="ghost accent-violet" id="run-job-btn">▶ Correr job ahora</button>
         </div>
       </div>
-      <p class="card-sub">Hacé clic en una fila para ver su historial de seguidores abajo.</p>
+      <p class="card-sub">Hacé clic en una fila (o en "🔍 Analizar") para ver el análisis completo de ese canal — KPIs, benchmark, historial y proyecciones/recomendaciones premium — en la pestaña "Por canal".</p>
       <div id="tracked-empty" class="empty-note">Todavía no agregaste ningún canal al seguimiento.</div>
       <div id="tracked-content" style="display:none;overflow-x:auto;">
         <table class="data-table" id="tracked-table">
@@ -557,6 +599,7 @@
             <tr>
               <th>Plataforma</th>
               <th>Canal</th>
+              <th>Tipo</th>
               <th class="num">Seguidores</th>
               <th class="num">NER %</th>
               <th>Tier</th>
@@ -569,21 +612,6 @@
         </table>
       </div>
       <div id="job-result" class="job-result"></div>
-    </div>
-
-    <div class="card" id="history-card" style="display:none;">
-      <h3 id="history-title">Historial de seguidores</h3>
-      <p class="card-sub" id="history-sub"></p>
-      <div id="chart-history"></div>
-
-      <div class="premium-panel">
-        <p class="card-sub" style="margin:0 0 8px;">📈 <strong>Premium</strong> — proyección de tendencia y recomendaciones de política general para este canal (requiere plan premium activo, ver pestaña "Cuenta").</p>
-        <div class="inline-actions">
-          <button type="button" class="ghost accent-violet" id="premium-projections-btn">Ver proyección</button>
-          <button type="button" class="ghost accent-violet" id="premium-recommendations-btn">Ver recomendaciones</button>
-        </div>
-        <div id="premium-result"></div>
-      </div>
     </div>
   </section>
 
@@ -685,10 +713,11 @@
     sortKey: "followers",
     sortDir: "desc",
     topics: [],   // { query, ts, summary: [...PlatformSummary] }
-    tracked: [],  // canales trackeados (seguimiento diario)
-    selectedTrackedId: null,
+    tracked: [],  // canales trackeados (seguimiento)
     benchmarks: {},        // platform -> PlatformBenchmark (cacheado desde loadBenchmarks)
     selectedChannelId: null, // universal_id del canal con el detalle abierto en "Por canal"
+    channelTypes: [],      // catálogo: ChannelTypeOut[] (categorías de YouTube + tipos propios)
+    catalogSummary: null,  // catálogo: CatalogSummaryResponse cacheada (cantidades por tipo)
     token: null,   // JWT de sesión (localStorage "cac_token")
     me: null,      // UserOut del usuario autenticado, o null si no hay sesión
   };
@@ -813,7 +842,15 @@
   function renderGroupedColumns(el, categories, series, opts) {
     opts = opts || {};
     const isPct = !!opts.percent;
-    const W = 640, H = 200, padL = 36, padR = 10, padT = 10, padB = 26;
+    // Con muchas categorías (p.ej. las 15 de "Por categoría") las etiquetas
+    // horizontales centradas se pisan entre sí — rotateLabels las inclina
+    // -45° y les da más alto de sobra abajo para que no se superpongan.
+    const rotate = !!opts.rotateLabels;
+    // Con la etiqueta rotada -45°/anchor=end, el extremo lejano del texto cae
+    // hacia abajo-izquierda (no arriba): reservamos suficiente padB para una
+    // etiqueta de hasta ~18 caracteres visibles a 10px sin recortarse contra
+    // lo que venga debajo (ver truncado en el llamador).
+    const W = 640, H = rotate ? 256 : 200, padL = 36, padR = 10, padT = 10, padB = rotate ? 96 : 26;
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const maxVal = Math.max(1, ...series.flatMap(s => s.values));
     const niceMax = niceCeil(maxVal);
@@ -834,12 +871,13 @@
       const groupX = padL + ci * groupW + (groupW - (barW * series.length + barGap * (series.length - 1))) / 2;
       const yBase = padT + plotH;
       const groupLabels = [];
+      const catFullLabel = cat.full || cat.label;
       series.forEach((s, si) => {
         const val = s.values[ci] || 0;
         const h = niceMax > 0 ? (val / niceMax) * plotH : 0;
         const x = groupX + si * (barW + barGap);
         const valText = isPct ? fmtPct(val, 1) : fmtCompact(val);
-        bars += `<path d="${vBarPath(x, yBase, barW, h, 4)}" fill="${s.color}" data-tip="${escapeHtml(s.label)} · ${escapeHtml(cat.label)}: ${valText}"></path>`;
+        bars += `<path d="${vBarPath(x, yBase, barW, h, 4)}" fill="${s.color}" data-tip="${escapeHtml(s.label)} · ${escapeHtml(catFullLabel)}: ${valText}"></path>`;
         if (val > 0 && h > 14) {
           groupLabels.push({ x: x + barW / 2, yTop: yBase - h - 4, text: valText });
         }
@@ -854,7 +892,13 @@
       }
       if (!collides) labelCandidates.push(...groupLabels);
 
-      catLabels += `<text class="cat-label" x="${groupX + (barW * series.length + barGap * (series.length - 1)) / 2}" y="${padT + plotH + 16}" text-anchor="middle">${escapeHtml(cat.label)}</text>`;
+      const labelX = groupX + (barW * series.length + barGap * (series.length - 1)) / 2;
+      if (rotate) {
+        const labelY = padT + plotH + 8;
+        catLabels += `<text class="cat-label" font-size="10" data-tip="${escapeHtml(catFullLabel)}" x="${labelX}" y="${labelY}" text-anchor="end" transform="rotate(-45 ${labelX} ${labelY})">${escapeHtml(cat.label)}</text>`;
+      } else {
+        catLabels += `<text class="cat-label" x="${labelX}" y="${padT + plotH + 16}" text-anchor="middle">${escapeHtml(cat.label)}</text>`;
+      }
     });
 
     const valueLabels = labelCandidates.map(l =>
@@ -1220,16 +1264,107 @@
   }
 
   // ---------------------------------------------------------------------
-  // Detalle de un canal individual (dashboard por canal) — usa los datos ya
-  // traídos por la búsqueda, sin pegarle de nuevo a la API. Un canal que NO
-  // está en seguimiento diario no tiene snapshots históricos todavía, así
-  // que esta vista muestra su "foto" actual con más detalle en vez de una
-  // curva en el tiempo (para eso está el botón "+ Seguir", que sí arma
-  // historial a partir de mañana).
+  // Card de análisis de un canal individual ("Por canal"): KPIs, benchmark,
+  // tipo de canal, historial de seguidores (si está trackeado) y
+  // proyecciones/recomendaciones premium — un único card sirve tanto para
+  // un canal recién buscado como para uno del catálogo (ver
+  // `findChannelForDetail`). Un canal que todavía NO está en seguimiento no
+  // tiene snapshots históricos, así que esa sección queda oculta y el botón
+  // "+ Agregar a seguimiento" es el que arranca el historial a partir de la
+  // próxima corrida del worker.
   // ---------------------------------------------------------------------
-  function showChannelDetail(universalId) {
-    const c = state.channels.find(x => x.universal_id === universalId);
-    if (!c) return;
+  // Busca el canal a mostrar en el card de análisis. Primero en
+  // `state.channels` (resultado "vivo" de una búsqueda/discover, con todas
+  // las métricas de interacción); si no está ahí (p. ej. se abrió desde la
+  // tabla de "Canales trackeados" en "Catálogo" y no formaba parte de la
+  // última búsqueda) arma un objeto equivalente a partir de su último
+  // snapshot guardado — así el mismo card sirve para los dos orígenes, en
+  // vez de tener dos vistas de detalle separadas.
+  function findChannelForDetail(universalId) {
+    const fromSearch = state.channels.find(x => x.universal_id === universalId);
+    if (fromSearch) return { channel: fromSearch, hasInteractions: true };
+
+    // "Por categoría" no vive en `state.channels` (no es una búsqueda por
+    // tema) — `categoryChannelsIndex` se arma en `renderByCategoryTables`.
+    const fromCategory = categoryChannelsIndex[universalId];
+    if (fromCategory) return { channel: fromCategory, hasInteractions: true };
+
+    const tc = state.tracked.find(t => `${t.platform}:${t.native_id}` === universalId);
+    if (tc && tc.latest_snapshot) {
+      const s = tc.latest_snapshot;
+      return {
+        channel: {
+          universal_id: universalId, native_id: tc.native_id, platform: tc.platform,
+          name: tc.name || tc.label || tc.handle || tc.native_id, handle: tc.handle, url: tc.url,
+          followers: s.followers, total_views: s.total_views, total_posts: s.total_posts,
+          raw_interactions: null, likes: null, comments: null, shares: null, saves: null,
+          normalized_er: s.normalized_er, tier: s.tier,
+        },
+        hasInteractions: false,
+      };
+    }
+    return null;
+  }
+
+  function renderChannelDetailType(trackedEntry) {
+    const el = document.getElementById("channel-detail-type-row");
+    if (!trackedEntry) {
+      el.innerHTML = `<span class="card-sub" style="margin:0;">Agregalo al seguimiento (arriba) para poder clasificarlo por tipo de canal.</span>`;
+      return;
+    }
+    const options = state.channelTypes.map(t =>
+      `<option value="${t.id}" ${trackedEntry.channel_type && trackedEntry.channel_type.id === t.id ? "selected" : ""}>${escapeHtml(t.name)}</option>`
+    ).join("");
+    el.innerHTML = `
+      <span class="card-sub" style="margin:0;">Tipo de canal:</span>
+      <select id="channel-detail-type-select" style="padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--page-plane);color:var(--text-primary);font-size:12px;">
+        <option value="">Sin tipo</option>
+        ${options}
+      </select>
+      <span class="card-sub" id="channel-detail-type-status" style="margin:0;"></span>`;
+    document.getElementById("channel-detail-type-select").addEventListener("change", async (e) => {
+      const statusEl = document.getElementById("channel-detail-type-status");
+      const value = e.target.value ? Number(e.target.value) : null;
+      statusEl.textContent = "Guardando…";
+      try {
+        await fetchJSON(`${API}/catalog/channels/${trackedEntry.id}/type`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channel_type_id: value }),
+        });
+        statusEl.textContent = "✓ Guardado";
+        await loadTrackedChannels();
+        await loadCatalogSummary();
+      } catch (err) {
+        statusEl.textContent = "No se pudo guardar: " + err.message;
+        statusEl.style.color = "var(--status-critical)";
+      }
+    });
+  }
+
+  async function loadChannelDetailHistory(trackedEntry) {
+    const section = document.getElementById("channel-detail-history-section");
+    if (!trackedEntry) { section.style.display = "none"; return; }
+    section.style.display = "block";
+    const subEl = document.getElementById("channel-detail-history-sub");
+    const chartEl = document.getElementById("channel-detail-history");
+    subEl.textContent = "Cargando…";
+    chartEl.innerHTML = "";
+    try {
+      const data = await fetchJSON(`${API}/tracking/channels/${trackedEntry.id}/history?days=90`);
+      const points = data.snapshots.map(s => ({ label: fmtDate(s.snapshot_date), value: s.followers }));
+      subEl.textContent = `${data.snapshots.length} snapshot(s) en los últimos 90 días · fuente: /api/v1/tracking/channels/${trackedEntry.id}/history`;
+      renderLineChart(chartEl, points, { color: PLATFORM_COLOR[trackedEntry.platform] });
+    } catch (e) {
+      subEl.textContent = "";
+      chartEl.innerHTML = `<p class="empty-note">No se pudo cargar el historial: ${escapeHtml(e.message)}</p>`;
+    }
+  }
+
+  async function showChannelDetail(universalId) {
+    const found = findChannelForDetail(universalId);
+    if (!found) return;
+    const { channel: c, hasInteractions } = found;
     state.selectedChannelId = universalId;
     renderChannelsTable();
 
@@ -1243,7 +1378,8 @@
     document.getElementById("channel-detail-title").innerHTML =
       `<span class="dot ${c.platform}"></span> ${nameHtml}`;
     document.getElementById("channel-detail-sub").textContent =
-      `${escapeHtml(c.handle || c.native_id)} · ${PLATFORM_LABEL[c.platform] || c.platform} · datos de esta búsqueda, no historial`;
+      `${escapeHtml(c.handle || c.native_id)} · ${PLATFORM_LABEL[c.platform] || c.platform}`
+      + (hasInteractions ? " · datos de esta búsqueda" : " · último snapshot guardado");
 
     const tierChip = `<span class="tier-chip" style="background:${TIER_COLOR[c.tier]};color:${TIER_TEXT[c.tier] || '#ffffff'}">${TIER_LABEL[c.tier] || c.tier}</span>`;
     document.getElementById("channel-detail-kpis").innerHTML = `
@@ -1252,14 +1388,14 @@
       <div class="stat-tile"><div class="stat-label">Publicaciones</div><div class="stat-value">${fmtInt(c.total_posts)}</div></div>
       <div class="stat-tile"><div class="stat-label">Tier</div><div class="stat-value" style="font-size:16px;">${tierChip}</div></div>`;
 
-    document.getElementById("channel-detail-interactions").innerHTML = `
+    document.getElementById("channel-detail-interactions").innerHTML = hasInteractions ? `
       <table class="data-table"><tbody>
         <tr><td>Likes</td><td class="num">${fmtCompact(c.likes)}</td></tr>
         <tr><td>Comentarios</td><td class="num">${fmtCompact(c.comments)}</td></tr>
         <tr><td>Shares</td><td class="num">${fmtCompact(c.shares)}</td></tr>
         <tr><td>Saves</td><td class="num">${fmtCompact(c.saves)}</td></tr>
         <tr><td>Total interacciones crudas</td><td class="num">${fmtCompact(c.raw_interactions)}</td></tr>
-      </tbody></table>`;
+      </tbody></table>` : `<p class="empty-note">El snapshot guardado no incluye el detalle de interacciones (solo lo trae una búsqueda en vivo) — el NER de al lado sí viene del snapshot.</p>`;
 
     const meterEl = document.getElementById("channel-detail-ner-meter");
     const bench = state.benchmarks[c.platform];
@@ -1279,11 +1415,24 @@
 
     const trackedEntry = state.tracked.find(tc => tc.platform === c.platform && tc.native_id === c.native_id);
     document.getElementById("channel-detail-actions").innerHTML = trackedEntry
-      ? `<span class="status-badge good">${iconGood()}Ya está en seguimiento diario</span>`
-      : `<button type="button" class="primary accent-violet" id="channel-detail-follow-btn">+ Agregar a seguimiento diario</button>
+      ? `<span class="status-badge good">${iconGood()}Ya está en seguimiento</span>
+         <button type="button" class="link-action danger" id="channel-detail-untrack-btn">Dar de baja del seguimiento</button>`
+      : `<button type="button" class="primary accent-violet" id="channel-detail-follow-btn">+ Agregar a seguimiento</button>
          <span class="card-sub" id="channel-detail-follow-status" style="margin:0;"></span>`;
     const followBtn = document.getElementById("channel-detail-follow-btn");
     if (followBtn) followBtn.addEventListener("click", () => followChannelFromSearch(c.universal_id, followBtn));
+    const untrackBtn = document.getElementById("channel-detail-untrack-btn");
+    if (untrackBtn) untrackBtn.addEventListener("click", () => removeTrackedChannel(trackedEntry.id, () => {
+      if (findChannelForDetail(universalId)) showChannelDetail(universalId);
+      else {
+        document.getElementById("channel-detail-card").style.display = "none";
+        state.selectedChannelId = null;
+        renderChannelsTable();
+      }
+    }));
+
+    renderChannelDetailType(trackedEntry);
+    await loadChannelDetailHistory(trackedEntry);
 
     // Panel premium (proyección + recomendaciones) para ESTE canal puntual:
     // solo tiene sentido si ya está en seguimiento (necesita snapshots
@@ -1300,15 +1449,19 @@
     } else {
       premiumProjBtn.disabled = true;
       premiumRecBtn.disabled = true;
-      premiumResultEl.innerHTML = `<p class="empty-note">Agregá este canal al seguimiento diario (botón de arriba) para desbloquear proyecciones y recomendaciones — necesitan historial semanal.</p>`;
+      premiumResultEl.innerHTML = `<p class="empty-note">Agregá este canal al seguimiento (botón de arriba) para desbloquear proyecciones y recomendaciones — necesitan historial semanal.</p>`;
     }
   }
 
   // Agrega un canal al seguimiento. Genérico: recibe el objeto canal
   // directamente (no un id a buscar en `state.channels`) para poder
   // reutilizarse desde la tabla principal, el detalle Y las tablas de
-  // "Por categoría" (que no viven en `state.channels`).
-  async function followChannel(channel, triggerEl, onSuccess) {
+  // "Por categoría" (que no viven en `state.channels`). `channelTypeName`
+  // es opcional: "Por categoría" ya sabe el nombre de la categoría de
+  // YouTube del canal (p. ej. "Gaming"), así que se lo pasa de una como
+  // tipo de canal del catálogo — reusa el tipo si ya existe, lo crea si no
+  // (ver `channel_type_name` en `TrackedChannelCreate`).
+  async function followChannel(channel, triggerEl, onSuccess, channelTypeName) {
     const originalText = triggerEl.textContent;
     triggerEl.disabled = true;
     triggerEl.textContent = "Agregando…";
@@ -1316,9 +1469,14 @@
       await fetchJSON(`${API}/tracking/channels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: channel.platform, identifier: channel.native_id, label: channel.name }),
+        body: JSON.stringify({
+          platform: channel.platform, identifier: channel.native_id, label: channel.name,
+          channel_type_name: channelTypeName || null,
+        }),
       });
       await loadTrackedChannels();
+      await loadCatalogSummary();
+      if (channelTypeName) await loadChannelTypes();
       triggerEl.outerHTML = `<span class="card-sub" style="margin:0;">✓ En seguimiento</span>`;
       if (onSuccess) onSuccess();
     } catch (e) {
@@ -1423,7 +1581,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Render: Seguimiento diario tab (canales trackeados + worker)
+  // Render: Catálogo tab (tipos de canal, canales trackeados + worker)
   // ---------------------------------------------------------------------
   function fmtDate(d) {
     if (!d) return "—";
@@ -1431,11 +1589,111 @@
     const parts = String(d).split("-");
     return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
   }
-  function fmtDateTimeShort(iso) {
-    if (!iso) return "—";
-    try { return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
-    catch (e) { return iso; }
+
+  // ---- Tipos de canal (categorías de YouTube + propios) ----------------
+
+  function typeOptionsHtml(selectedId) {
+    return state.channelTypes.map(t =>
+      `<option value="${t.id}" ${selectedId === t.id ? "selected" : ""}>${escapeHtml(t.name)}</option>`
+    ).join("");
   }
+
+  async function loadChannelTypes() {
+    try {
+      const data = await fetchJSON(`${API}/catalog/types`);
+      state.channelTypes = data.types;
+    } catch (e) {
+      state.channelTypes = [];
+    }
+    const trackSelect = document.getElementById("track-channel-type");
+    if (trackSelect) trackSelect.innerHTML = `<option value="">Sin tipo</option>${typeOptionsHtml(null)}`;
+    renderTypeList();
+  }
+
+  async function loadCatalogSummary() {
+    try {
+      state.catalogSummary = await fetchJSON(`${API}/catalog/summary`);
+    } catch (e) {
+      state.catalogSummary = null;
+    }
+    renderTypeList();
+    const label = document.getElementById("catalog-summary-label");
+    label.textContent = state.catalogSummary ? `${fmtInt(state.catalogSummary.total_channels)} canal(es) trackeado(s) en total` : "";
+  }
+
+  function renderTypeList() {
+    const empty = document.getElementById("types-empty");
+    const list = document.getElementById("type-list");
+    if (!state.channelTypes.length) {
+      empty.style.display = "block";
+      list.style.display = "none";
+      return;
+    }
+    empty.style.display = "none";
+    list.style.display = "flex";
+
+    const countByTypeId = {};
+    if (state.catalogSummary) {
+      state.catalogSummary.by_type.forEach(row => {
+        if (row.channel_type) countByTypeId[row.channel_type.id] = row.channel_count;
+      });
+    }
+
+    list.innerHTML = state.channelTypes.map(t => `
+      <div class="type-row">
+        <div>
+          <div class="type-name">${escapeHtml(t.name)}</div>
+          <div class="type-meta">${t.is_custom ? "Tipo propio" : "Categoría de YouTube"}${t.description ? " · " + escapeHtml(t.description) : ""}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="type-count">${fmtInt(countByTypeId[t.id] || 0)}</span>
+          <button class="remove" data-id="${t.id}" title="Borrar tipo (falla si tiene canales asignados)">✕</button>
+        </div>
+      </div>`).join("");
+
+    document.querySelectorAll("#type-list .remove").forEach(btn => {
+      btn.addEventListener("click", () => deleteChannelType(Number(btn.getAttribute("data-id"))));
+    });
+  }
+
+  async function createChannelType(name, description) {
+    const statusEl = document.getElementById("type-form-status");
+    const btn = document.getElementById("type-add-btn");
+    btn.disabled = true;
+    statusEl.textContent = "Agregando…";
+    statusEl.style.color = "var(--text-muted)";
+    try {
+      await fetchJSON(`${API}/catalog/types`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description: description || null }),
+      });
+      statusEl.textContent = "✓ Tipo agregado.";
+      statusEl.style.color = "var(--status-good)";
+      document.getElementById("type-name").value = "";
+      document.getElementById("type-description").value = "";
+      await loadChannelTypes();
+      await loadCatalogSummary();
+    } catch (e) {
+      statusEl.textContent = "No se pudo agregar: " + e.message;
+      statusEl.style.color = "var(--status-critical)";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteChannelType(id) {
+    try {
+      await fetchJSON(`${API}/catalog/types/${id}`, { method: "DELETE" });
+      await loadChannelTypes();
+      await loadCatalogSummary();
+    } catch (e) {
+      document.getElementById("type-form-status").innerHTML =
+        `<span style="color:var(--status-critical)">No se pudo borrar: ${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  // ---- Canales trackeados ------------------------------------------------
 
   async function loadTrackedChannels() {
     const includeInactive = document.getElementById("track-show-inactive").checked;
@@ -1446,6 +1704,20 @@
     } catch (e) {
       document.getElementById("job-result").innerHTML = `<span style="color:var(--status-critical)">No se pudo cargar la lista de canales trackeados: ${escapeHtml(e.message)}</span>`;
     }
+  }
+
+  // Abre el análisis completo de un canal trackeado en la pestaña "Por
+  // canal" — un único card de detalle sirve para canales recién buscados
+  // Y para canales del catálogo (ver `findChannelForDetail`), en vez de
+  // mantener una vista de historial aparte acá en "Catálogo".
+  function openTrackedChannelDetail(tc) {
+    document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    document.querySelector('nav.tabs button[data-tab="canales"]').classList.add("active");
+    document.getElementById("tab-canales").classList.add("active");
+    document.getElementById("canales-empty").style.display = "none";
+    document.getElementById("canales-content").style.display = "block";
+    showChannelDetail(`${tc.platform}:${tc.native_id}`);
   }
 
   function renderTrackedTable() {
@@ -1474,13 +1746,15 @@
       const statusHtml = tc.active
         ? `<span class="status-badge good">${iconGood()}Activo</span>`
         : `<span class="status-badge warning">${iconWarn()}De baja</span>`;
-      const selected = state.selectedTrackedId === tc.id ? "selected-row" : "";
-      const actions = tc.active
-        ? `<button type="button" class="link-action danger" data-action="remove" data-id="${tc.id}">Dar de baja</button>`
-        : "";
-      return `<tr class="${selected}" data-selectable data-id="${tc.id}">
+      const typeCell = tc.channel_type
+        ? `<span class="type-chip">${escapeHtml(tc.channel_type.name)}</span>`
+        : `<span class="card-sub" style="margin:0;">Sin tipo</span>`;
+      const actions = `<button type="button" class="link-action" data-action="analyze" data-id="${tc.id}">🔍 Analizar</button>`
+        + (tc.active ? `<button type="button" class="link-action danger" data-action="remove" data-id="${tc.id}">Dar de baja</button>` : "");
+      return `<tr data-id="${tc.id}">
         <td><span class="dot ${tc.platform}"></span> ${PLATFORM_LABEL[tc.platform] || tc.platform}</td>
         <td>${nameLabel}<div class="card-sub" style="margin:0;">${escapeHtml(tc.handle || tc.native_id)}</div></td>
+        <td>${typeCell}</td>
         <td class="num">${snap ? fmtCompact(snap.followers) : "—"}</td>
         <td class="num">${snap ? fmtPct(snap.normalized_er) : "—"}</td>
         <td>${tierChip}</td>
@@ -1490,10 +1764,10 @@
       </tr>`;
     }).join("");
 
-    document.querySelectorAll("#tracked-tbody tr[data-selectable]").forEach(tr => {
-      tr.addEventListener("click", (e) => {
-        if (e.target.closest("[data-action]")) return; // los botones de acción no seleccionan la fila
-        selectTrackedChannel(Number(tr.getAttribute("data-id")));
+    document.querySelectorAll('#tracked-tbody [data-action="analyze"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        const tc = state.tracked.find(t => t.id === Number(btn.getAttribute("data-id")));
+        if (tc) openTrackedChannelDetail(tc);
       });
     });
     document.querySelectorAll('#tracked-tbody [data-action="remove"]').forEach(btn => {
@@ -1501,30 +1775,7 @@
     });
   }
 
-  async function selectTrackedChannel(id) {
-    state.selectedTrackedId = id;
-    renderTrackedTable();
-    const tc = state.tracked.find(t => t.id === id);
-    const card = document.getElementById("history-card");
-    card.style.display = "block";
-    document.getElementById("history-title").textContent =
-      `Historial de seguidores — ${tc ? (tc.label || tc.name || tc.handle || tc.native_id) : id}`;
-    document.getElementById("history-sub").textContent = "Cargando…";
-    document.getElementById("chart-history").innerHTML = "";
-    document.getElementById("premium-result").innerHTML = "";
-    try {
-      const data = await fetchJSON(`${API}/tracking/channels/${id}/history?days=90`);
-      const points = data.snapshots.map(s => ({ label: fmtDate(s.snapshot_date), value: s.followers }));
-      document.getElementById("history-sub").textContent =
-        `${data.snapshots.length} snapshot(s) en los últimos 90 días · fuente: /api/v1/tracking/channels/${id}/history`;
-      renderLineChart(document.getElementById("chart-history"), points, { color: PLATFORM_COLOR[tc ? tc.platform : "youtube"] });
-    } catch (e) {
-      document.getElementById("history-sub").textContent = "";
-      document.getElementById("chart-history").innerHTML = `<p class="empty-note">No se pudo cargar el historial: ${escapeHtml(e.message)}</p>`;
-    }
-  }
-
-  async function addTrackedChannel(platform, identifier, label) {
+  async function addTrackedChannel(platform, identifier, label, channelTypeId) {
     const statusEl = document.getElementById("track-form-status");
     const btn = document.getElementById("track-add-btn");
     btn.disabled = true;
@@ -1534,13 +1785,14 @@
       await fetchJSON(`${API}/tracking/channels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform, identifier, label: label || null }),
+        body: JSON.stringify({ platform, identifier, label: label || null, channel_type_id: channelTypeId || null }),
       });
       statusEl.textContent = `Canal agregado — ya tiene su primer snapshot.`;
       statusEl.style.color = "var(--status-good)";
       document.getElementById("track-identifier").value = "";
       document.getElementById("track-label").value = "";
       await loadTrackedChannels();
+      await loadCatalogSummary();
     } catch (e) {
       statusEl.textContent = "No se pudo agregar: " + e.message;
       statusEl.style.color = "var(--status-critical)";
@@ -1549,14 +1801,15 @@
     }
   }
 
-  async function removeTrackedChannel(id) {
+  // `onDone` deja reutilizar esta misma función desde el botón "Dar de
+  // baja del seguimiento" del card de análisis (pestaña "Por canal"),
+  // que necesita refrescar (o cerrar) ese card después de la baja.
+  async function removeTrackedChannel(id, onDone) {
     try {
       await fetchJSON(`${API}/tracking/channels/${id}`, { method: "DELETE" });
-      if (state.selectedTrackedId === id) {
-        state.selectedTrackedId = null;
-        document.getElementById("history-card").style.display = "none";
-      }
       await loadTrackedChannels();
+      await loadCatalogSummary();
+      if (onDone) onDone();
     } catch (e) {
       document.getElementById("job-result").innerHTML = `<span style="color:var(--status-critical)">No se pudo dar de baja: ${escapeHtml(e.message)}</span>`;
     }
@@ -1575,7 +1828,10 @@
       }
       resultEl.innerHTML = html;
       await loadTrackedChannels();
-      if (state.selectedTrackedId) await selectTrackedChannel(state.selectedTrackedId);
+      // Si el card de análisis de "Por canal" está abierto sobre un canal
+      // trackeado, refrescarlo — el job recién corrido le puede haber
+      // sumado un snapshot nuevo al historial que muestra.
+      if (state.selectedChannelId) await showChannelDetail(state.selectedChannelId);
     } catch (e) {
       resultEl.innerHTML = `<span style="color:var(--status-critical)">Error corriendo el job: ${escapeHtml(e.message)}</span>`;
     } finally {
@@ -1583,14 +1839,22 @@
     }
   }
 
-  function initTrackingTab() {
+  function initCatalogTab() {
+    document.getElementById("type-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = document.getElementById("type-name").value.trim();
+      const description = document.getElementById("type-description").value.trim();
+      if (!name) return;
+      createChannelType(name, description);
+    });
     document.getElementById("track-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const platform = document.getElementById("track-platform").value;
       const identifier = document.getElementById("track-identifier").value.trim();
       const label = document.getElementById("track-label").value.trim();
+      const channelTypeId = document.getElementById("track-channel-type").value;
       if (!identifier) return;
-      addTrackedChannel(platform, identifier, label);
+      addTrackedChannel(platform, identifier, label, channelTypeId ? Number(channelTypeId) : null);
     });
     document.getElementById("run-job-btn").addEventListener("click", runDailyJobNow);
     document.getElementById("track-show-inactive").addEventListener("change", loadTrackedChannels);
@@ -1680,36 +1944,59 @@
   let categoryChannelsIndex = {};
 
   function categoryTableHtml(cat) {
+    const anomalyReasonByUid = {};
+    (cat.anomalies || []).forEach(a => { anomalyReasonByUid[a.universal_id] = a.reason; });
+
     const rows = cat.channels.map(c => {
       const tierChip = `<span class="tier-chip" style="background:${TIER_COLOR[c.tier]};color:${TIER_TEXT[c.tier] || '#ffffff'}">${TIER_LABEL[c.tier] || c.tier}</span>`;
       const nameCell = c.url
         ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.name)}</a>`
         : escapeHtml(c.name);
-      const alreadyTracked = state.tracked.some(tc => tc.platform === c.platform && tc.native_id === c.native_id);
-      const followBtn = alreadyTracked
+      const trackedEntry = state.tracked.find(tc => tc.platform === c.platform && tc.native_id === c.native_id);
+      const typeCell = trackedEntry
+        ? (trackedEntry.channel_type
+          ? `<span class="type-chip">${escapeHtml(trackedEntry.channel_type.name)}</span>`
+          : `<span class="card-sub" style="margin:0;">Sin tipo</span>`)
+        : `<span class="card-sub" style="margin:0;">—</span>`;
+      const followBtn = trackedEntry
         ? `<span class="card-sub" style="margin:0;">✓ En seguimiento</span>`
-        : `<button type="button" class="link-action" data-action="follow-cat" data-uid="${escapeHtml(c.universal_id)}">+ Seguir</button>`;
+        : `<button type="button" class="link-action" data-action="follow-cat" data-uid="${escapeHtml(c.universal_id)}" data-cat-label="${escapeHtml(cat.label)}">+ Seguir</button>`;
+      const analyzeBtn = `<button type="button" class="link-action" data-action="analyze-cat" data-uid="${escapeHtml(c.universal_id)}">🔍 Analizar</button>`;
+      const anomalyReason = anomalyReasonByUid[c.universal_id];
+      const anomaly = anomalyReason ? `<span class="anomaly-flag" data-tip="${escapeHtml(anomalyReason)}">⚠ revisar</span>` : "";
       return `<tr>
         <td>${nameCell}<div class="card-sub" style="margin:0;">${escapeHtml(c.handle || "")}</div></td>
         <td>${tierChip}</td>
+        <td>${typeCell}</td>
         <td class="num">${fmtCompact(c.followers)}</td>
         <td class="num">${fmtCompact(c.total_views)}</td>
         <td class="num">${fmtInt(c.total_posts)}</td>
         <td class="num">${fmtPct(c.normalized_er)}</td>
-        <td>${followBtn}</td>
+        <td>${anomaly}</td>
+        <td class="inline-actions">${analyzeBtn}${followBtn}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="7" class="empty-note">Sin datos para esta categoría en las regiones configuradas.</td></tr>`;
+    }).join("") || `<tr><td colspan="9" class="empty-note">Sin datos para esta categoría en las regiones configuradas.</td></tr>`;
+
+    const anomalyNote = cat.anomalies && cat.anomalies.length
+      ? `<div class="anomaly-flag" style="margin-top:0;">⚠ ${cat.anomalies.length} canal(es) con métricas potencialmente infladas</div>`
+      : "";
 
     return `<div class="card card-accent aqua" style="margin-bottom:16px;">
       <div class="filter-row" style="justify-content:space-between;">
         <h3 style="margin:0;">${escapeHtml(cat.label)}</h3>
         <span class="card-sub" style="margin:0;">${cat.channel_count} canal(es)</span>
       </div>
+      <div class="kpi-row" style="grid-template-columns:repeat(3, 1fr);margin-bottom:14px;">
+        <div class="stat-tile"><div class="stat-label">Canales</div><div class="stat-value">${fmtInt(cat.channel_count)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Seguidores totales</div><div class="stat-value">${fmtCompact(cat.total_followers)}</div></div>
+        <div class="stat-tile"><div class="stat-label">ER promedio (NER)</div><div class="stat-value">${fmtPct(cat.avg_normalized_er)}</div></div>
+      </div>
+      ${anomalyNote}
       <div style="overflow-x:auto;">
         <table class="data-table">
           <thead><tr>
-            <th>Canal</th><th>Tier</th><th class="num">Seguidores</th><th class="num">Vistas</th>
-            <th class="num">Publicaciones</th><th class="num">NER %</th><th>Acciones</th>
+            <th>Canal</th><th>Tier</th><th>Tipo</th><th class="num">Seguidores</th><th class="num">Vistas</th>
+            <th class="num">Publicaciones</th><th class="num">NER %</th><th></th><th>Acciones</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -1719,7 +2006,8 @@
 
   function renderByCategoryTables(platformBreakdown) {
     categoryChannelsIndex = {};
-    const html = platformBreakdown.categories.map(cat => {
+    const categories = platformBreakdown.categories;
+    const html = categories.map(cat => {
       cat.channels.forEach(c => { categoryChannelsIndex[c.universal_id] = c; });
       return categoryTableHtml(cat);
     }).join("");
@@ -1727,9 +2015,49 @@
     document.querySelectorAll('#categorias-tables [data-action="follow-cat"]').forEach(btn => {
       btn.addEventListener("click", () => {
         const c = categoryChannelsIndex[btn.getAttribute("data-uid")];
-        if (c) followChannel(c, btn);
+        if (c) followChannel(c, btn, null, btn.getAttribute("data-cat-label"));
       });
     });
+    document.querySelectorAll('#categorias-tables [data-action="analyze-cat"]').forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+        document.querySelector('nav.tabs button[data-tab="canales"]').classList.add("active");
+        document.getElementById("tab-canales").classList.add("active");
+        document.getElementById("canales-empty").style.display = "none";
+        document.getElementById("canales-content").style.display = "block";
+        showChannelDetail(btn.getAttribute("data-uid"));
+      });
+    });
+
+    // Comparativa entre categorías: mismas convenciones que "Por temática"
+    // (renderGroupedColumns, una sola serie porque TikTok está deshabilitado),
+    // pero con rotateLabels: con 15 categorías fijas las etiquetas horizontales
+    // se pisan entre sí, así que acá van inclinadas -45° (label completo
+    // disponible al pasar el mouse, vía data-tip).
+    const catLabels = categories.map(cat => ({
+      label: cat.label.length > 18 ? cat.label.slice(0, 17) + "…" : cat.label,
+      full: cat.label,
+    }));
+    const followerSeries = [{
+      label: PLATFORM_LABEL[platformBreakdown.platform] || platformBreakdown.platform,
+      color: PLATFORM_COLOR[platformBreakdown.platform] || "var(--series-youtube)",
+      values: categories.map(cat => cat.total_followers),
+    }];
+    const erSeries = [{
+      label: PLATFORM_LABEL[platformBreakdown.platform] || platformBreakdown.platform,
+      color: PLATFORM_COLOR[platformBreakdown.platform] || "var(--series-youtube)",
+      values: categories.map(cat => cat.avg_normalized_er),
+    }];
+    document.getElementById("chart-categorias-followers").innerHTML = '<h3 style="font-size:13px;margin:0 0 8px;">Seguidores totales por categoría</h3>';
+    const fEl = document.createElement("div");
+    document.getElementById("chart-categorias-followers").appendChild(fEl);
+    renderGroupedColumns(fEl, catLabels, followerSeries, { rotateLabels: true });
+
+    document.getElementById("chart-categorias-er").innerHTML = '<h3 style="font-size:13px;margin:0 0 8px;">ER promedio (NER %) por categoría</h3>';
+    const eEl = document.createElement("div");
+    document.getElementById("chart-categorias-er").appendChild(eEl);
+    renderGroupedColumns(eEl, catLabels, erSeries, { percent: true, rotateLabels: true });
   }
 
   async function runDiscoverByCategory(limitPerCategory, sortBy) {
@@ -1943,14 +2271,13 @@
       </div>`).join("");
   }
 
-  // `resultElId` deja reutilizar esta misma lógica desde dos lugares:
-  // el detalle de "Por canal" (channel-detail-premium-result) y
-  // "Seguimiento diario" (premium-result) — cada uno con su propio
-  // `trackedId` resuelto en el momento de mostrar ese canal.
+  // `resultElId` queda parametrizado (en vez de hardcodear el id del div)
+  // por si en el futuro hace falta otro lugar además del card de "Por
+  // canal" que muestre proyecciones/recomendaciones premium.
   async function loadPremiumInto(trackedId, resultElId, kind) {
     const resultEl = document.getElementById(resultElId);
     if (!trackedId) {
-      resultEl.innerHTML = `<p class="empty-note">Agregá este canal al seguimiento diario primero — proyecciones y recomendaciones necesitan historial semanal.</p>`;
+      resultEl.innerHTML = `<p class="empty-note">Agregá este canal al seguimiento primero — proyecciones y recomendaciones necesitan historial semanal.</p>`;
       return;
     }
     resultEl.innerHTML = `<p class="empty-note">Cargando…</p>`;
@@ -1967,12 +2294,10 @@
     }
   }
 
-  function initPremiumPanel() {
-    document.getElementById("premium-projections-btn").addEventListener("click", () =>
-      loadPremiumInto(state.selectedTrackedId, "premium-result", "projections"));
-    document.getElementById("premium-recommendations-btn").addEventListener("click", () =>
-      loadPremiumInto(state.selectedTrackedId, "premium-result", "recommendations"));
-  }
+  // (El panel premium de "Por canal" se wirea directamente dentro de
+  // `showChannelDetail()` — a diferencia de la vieja pestaña "Seguimiento
+  // diario", acá no hace falta un init aparte porque los botones se
+  // re-crean cada vez que se abre el detalle de un canal.)
 
   // ---------------------------------------------------------------------
   // Manual de métricas: convierte el Markdown de docs/manual_metricas_*.md
@@ -2144,12 +2469,13 @@
   initTheme();
   initForm();
   initChannelsTableEvents();
-  initTrackingTab();
+  initCatalogTab();
   initAuthTab();
-  initPremiumPanel();
   initManualTab();
   loadBenchmarks();
+  loadChannelTypes();
   loadTrackedChannels();
+  loadCatalogSummary();
   loadManual("es");
 
   // Sesión persistida (localStorage): si había un token guardado, validarlo

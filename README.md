@@ -47,7 +47,13 @@ API por `fetch` (mismo origen, sin configurar nada de CORS). Seis pestañas:
   (Spearman) con su interpretación.
 - **Por canal** — tabla completa, ordenable por cualquier columna, filtrable por
   nombre/@handle, con chip de tier y aviso ⚠ en los canales que el detector de
-  anomalías marcó como posiblemente inflados.
+  anomalías marcó como posiblemente inflados. Al hacer clic en un canal (🔍
+  Analizar) se abre su **card de análisis**: KPIs, interacciones crudas, NER vs.
+  benchmark de industria, tipo de canal del catálogo (asignable/editable ahí
+  mismo), historial de seguidores (si ya está trackeado) y, con plan premium,
+  proyección de tendencia + recomendaciones. Sirve tanto para un canal recién
+  buscado como para uno del catálogo, en un único lugar — antes el historial y
+  el alta/baja vivían en una pestaña aparte ("Seguimiento diario").
 - **Por categoría** — un ranking independiente por cada categoría de YouTube
   (música, gaming, noticias, ciencia y tecnología, etc.), sin mezclarlas entre
   sí — para que un género grande (música, gaming) no tape a uno más chico.
@@ -55,13 +61,14 @@ API por `fetch` (mismo origen, sin configurar nada de CORS). Seis pestañas:
   (no se persiste en el backend) para comparar seguidores y ER promedio entre
   distintos temas buscados.
 - **Métricas del medio** — las fichas de benchmark de industria (`/analytics/benchmarks`).
-- **Seguimiento diario** — alta/baja de canales trackeados (por ID nativo o
-  @handle, plataforma abierta a YouTube o TikTok), tabla con su último snapshot
-  (seguidores, NER, tier, fecha), botón "Correr job ahora" para disparar el
-  worker sin esperar al scheduler (semanal por default), y un mini gráfico de
-  línea con el historial de seguidores del canal seleccionado. Ver la sección
-  [Seguimiento (persistencia + worker)](#seguimiento-persistencia--worker)
-  más abajo.
+- **Catálogo** — tipos de canal (las 15 categorías de YouTube precargadas +
+  tipos propios que se pueden crear en cualquier momento) con la cantidad de
+  canales trackeados de cada uno; alta manual de un canal al seguimiento (con
+  tipo opcional); tabla de canales trackeados con su tipo, último snapshot y
+  botón "Correr job ahora" para disparar el worker sin esperar al scheduler
+  (semanal por default). Ver [Catálogo de canales (tipos y
+  cantidades)](#catálogo-de-canales-tipos-y-cantidades) y [Seguimiento
+  (persistencia + worker)](#seguimiento-persistencia--worker) más abajo.
 
 Debajo del buscador por tema hay una segunda fila ("— o todos los temas, sin
 categoría —") con dos modos que no piden palabra clave:
@@ -119,11 +126,16 @@ pytest -v
 | GET | `/api/v1/analytics/correlation?query=&platform=youtube\|tiktok&limit=` | Spearman/Pearson: publicaciones vs. engagement, seguidores vs. engagement |
 | GET | `/api/v1/analytics/anomalies?query=&platform=youtube\|tiktok&limit=` | Detección de cuentas con métricas potencialmente infladas |
 | GET | `/api/v1/analytics/overview?query=&limit=` | **Todo-en-uno**: distribución + desigualdad + correlación + anomalías + benchmark, para YouTube y TikTok, en una sola respuesta |
-| POST | `/api/v1/tracking/channels` | Alta de un canal al seguimiento diario (`{platform, identifier, label?}`) — resuelve el canal contra la API/mock y toma su primer snapshot de una |
-| GET | `/api/v1/tracking/channels?include_inactive=` | Lista los canales trackeados con su último snapshot |
+| POST | `/api/v1/tracking/channels` | Alta de un canal al seguimiento (`{platform, identifier, label?, channel_type_id?, channel_type_name?}`) — resuelve el canal contra la API/mock y toma su primer snapshot de una |
+| GET | `/api/v1/tracking/channels?include_inactive=` | Lista los canales trackeados con su último snapshot y su tipo de canal |
 | DELETE | `/api/v1/tracking/channels/{tracked_id}` | Baja lógica de un canal trackeado (conserva el historial ya tomado) |
 | GET | `/api/v1/tracking/channels/{tracked_id}/history?days=` | Historial de snapshots diarios de un canal trackeado |
 | POST | `/api/v1/tracking/run-daily-job` | Dispara el worker diario ahora mismo, sin esperar al scheduler |
+| GET | `/api/v1/catalog/types` | Lista los tipos de canal del catálogo (categorías de YouTube + propios) |
+| POST | `/api/v1/catalog/types` | Crea un tipo de canal propio (`{name, description?}`) — 409 si ya existe uno con ese nombre |
+| DELETE | `/api/v1/catalog/types/{type_id}` | Borra un tipo de canal — 409 si algún canal trackeado todavía lo tiene asignado |
+| GET | `/api/v1/catalog/summary` | Cantidad de canales trackeados activos por tipo (para la pestaña "Catálogo") |
+| PATCH | `/api/v1/catalog/channels/{tracked_id}/type` | Asigna o quita (`channel_type_id: null`) el tipo de canal de un canal ya trackeado |
 | POST | `/api/v1/auth/register` | Crear una cuenta (email + contraseña, arranca en plan 'free') → devuelve JWT de sesión |
 | POST | `/api/v1/auth/login` | Iniciar sesión → devuelve JWT de sesión |
 | GET | `/api/v1/auth/me` | Datos del usuario autenticado: plan, vigencia, créditos, accesos vigentes |
@@ -180,6 +192,7 @@ app/
 │       │   ├── search.py     # POST /analyze, GET /channels/search, /channels/discover* (requieren plan)
 │       │   ├── statistics.py # /analytics/{benchmarks,distribution,inequality,correlation,anomalies,overview}
 │       │   ├── tracking.py   # /tracking/{channels,run-daily-job} — alta/baja + historial + disparo manual del worker
+│       │   ├── catalog.py    # /catalog/{types,summary,channels/{id}/type} — tipos de canal + cantidades
 │       │   └── premium.py    # /premium/channels/{id}/{projections,recommendations} — solo plan premium
 │       └── router.py
 ├── core/
@@ -188,14 +201,15 @@ app/
 │   ├── security.py           # Hashing de contraseñas (bcrypt) + JWT de sesión (pyjwt)
 │   └── scheduler.py           # APScheduler: corre el worker diario 1 vez/día (hora configurable, UTC)
 ├── db/
-│   ├── models.py               # SQLAlchemy: TrackedChannel, ChannelMetricSnapshot, User (email/plan/report_credits)
-│   └── session.py              # Engine async + sesiones (SQLite por default, Postgres opcional vía DATABASE_URL)
+│   ├── models.py               # SQLAlchemy: TrackedChannel, ChannelMetricSnapshot, ChannelType, User
+│   └── session.py              # Engine async + sesiones (SQLite por default, Postgres opcional vía DATABASE_URL);
+│                                # también corre la migración liviana de `channel_type_id` y siembra el catálogo
 ├── models/
 │   ├── domain.py              # Platform, ContentTier, ContentFormat, Plan (enums)
 │   └── schemas.py             # UnifiedChannel + Request/Response schemas (Pydantic v2)
 └── services/
     ├── orchestrator.py        # Ingestion Hub: despacho concurrente + resumen
-    ├── tracked_channels.py     # CRUD de canales trackeados + upsert idempotente de snapshots
+    ├── tracked_channels.py     # CRUD de canales trackeados + upsert idempotente de snapshots + catálogo de tipos de canal
     ├── users.py                # CRUD de usuarios + simulación manual de cambio de plan (set_user_plan)
     ├── worker.py               # Worker diario: recorre canales activos, snapshotea, tolera errores por canal
     ├── collectors/
@@ -213,17 +227,39 @@ app/
         └── recommendations.py  # [Premium] Reglas: benchmark + tendencia -> recomendaciones por métrica
 ```
 
+### Catálogo de canales (tipos y cantidades)
+
+Pensado para armar un catálogo propio de canales de YouTube por tipo, con
+libertad de ir sumando tipos nuevos sin tocar código: `channel_types` combina
+las **15 categorías nativas de YouTube** (música, gaming, noticias, etc. —
+las mismas de `DISCOVER_CATEGORY_LABELS`/"Por categoría", sembradas solas la
+primera vez que arranca el backend) con **tipos propios** creados a mano
+(`POST /catalog/types`, sin límite ni redeploy). Cada canal trackeado puede
+tener un tipo asignado (`GET /catalog/summary` da la cantidad de canales por
+tipo — la vista de "cantidades" de la pestaña "Catálogo"); asignarlo es
+opcional y se puede hacer o cambiar en cualquier momento desde el card de
+análisis de "Por canal" o desde `PATCH /catalog/channels/{id}/type`. Un tipo
+no se puede borrar (`DELETE /catalog/types/{id}`) mientras algún canal
+trackeado todavía lo tenga asignado — hay que reasignarlos primero.
+
+El botón "+ Seguir" de la pestaña "Por categoría" le pasa de una el nombre de
+la categoría de YouTube como tipo de canal (`channel_type_name` en
+`POST /tracking/channels`): reusa el tipo si ya existe (comparación sin
+mayúsculas/minúsculas) o lo crea al vuelo si es la primera vez que se sigue
+un canal de esa categoría — así el catálogo se puebla solo a medida que se
+van agregando canales, sin un paso manual extra.
+
 ### Seguimiento (persistencia + worker)
 
 Además del pipeline en tiempo real (`/analyze`, `/analytics/*`), el sistema
 persiste una lista abierta de canales trackeados y les toma un snapshot
 periódico (semanal por default):
 
-1. **Alta manual** (dashboard, botón "+ Seguir" en la pestaña "Por canal", o
-   `POST /tracking/channels`): se resuelve el canal contra la API/mock, se
-   guarda en `dim_channels` (tabla `tracked_channels`) y se toma un primer
-   snapshot al instante — no hace falta esperar a la corrida del scheduler
-   para ver el primer dato.
+1. **Alta manual** (dashboard, pestaña "Catálogo" → "Agregar canal al
+   seguimiento", o `POST /tracking/channels`): se resuelve el canal contra la
+   API/mock, se guarda en `dim_channels` (tabla `tracked_channels`, con un
+   tipo de canal opcional) y se toma un primer snapshot al instante — no hace
+   falta esperar a la corrida del scheduler para ver el primer dato.
 2. **Worker** (`app/services/worker.py`, `run_daily_snapshot`): agrupa los
    canales activos por plataforma, los re-consulta (en lote cuando la API lo
    soporta) y guarda un snapshot por canal en `fact_channel_metrics_daily`
