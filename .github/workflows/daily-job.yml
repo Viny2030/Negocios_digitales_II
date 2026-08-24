@@ -3,25 +3,30 @@
 # tu PC) este workflow no tiene forma de alcanzarla: los runners de GitHub
 # viven en la nube y no pueden resolver un hostname interno como
 # "channel-analytics-core" (el container_name de docker-compose), que es
-# justo lo que tirό el error "Could not resolve host".
+# justo lo que tirό el error "Could not resolve host". Esto pasa tanto con
+# el cron automatico como con el boton manual "Run workflow" (workflow_dispatch)
+# porque los dos corren el mismo step.
 #
 # El job diario YA corre solo, sin este workflow, mientras la API este
 # levantada en tu maquina: ver app/core/scheduler.py (APScheduler,
-# arrancado en el startup de FastAPI). Con la app corriendo local no hace
-# falta nada mas.
+# arrancado en el startup de FastAPI). Mientras sigas probando todo local
+# en PyCharm (docker-compose / uvicorn) no hace falta nada mas de este
+# archivo.
 #
-# Dejo el trigger `schedule` deshabilitado (comentado) para que no siga
-# fallando todos los dias. Si en algun momento deployas la API a un
-# hosting publico (Render, Railway, Fly.io, un VPS, etc.), volve a activar
-# el cron de abajo y cargá el secret APP_BASE_URL con la URL PUBLICA de
-# ese deploy (ej: https://tu-api.onrender.com), no con el nombre del
-# container de docker-compose.
+# Dejo AMBOS triggers deshabilitados (comentados: `schedule` y
+# `workflow_dispatch`) para que este workflow no aparezca ni se pueda
+# disparar por error mientras no haya un deploy publico. Cuando deployes
+# a Railway (o donde sea), descomentá los dos triggers de abajo y cargá:
+#   - Secret APP_BASE_URL: la URL PUBLICA real del deploy
+#     (ej: https://tu-proyecto.up.railway.app), NUNCA el nombre de un
+#     container de docker-compose.
+#   - Secret ADMIN_TOKEN (opcional): si tu endpoint /run-daily-job lo pide.
 name: Daily channel tracking job
 
-on:
+on: {}
   # schedule:
   #   - cron: "0 3 * * *"
-  workflow_dispatch: {}
+  # workflow_dispatch: {}
 
 jobs:
   run-daily-job:
