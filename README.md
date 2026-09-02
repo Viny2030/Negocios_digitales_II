@@ -127,6 +127,7 @@ pytest -v
 | GET | `/api/v1/analytics/anomalies?query=&platform=youtube\|tiktok&limit=` | Detección de cuentas con métricas potencialmente infladas |
 | GET | `/api/v1/analytics/overview?query=&limit=` | **Todo-en-uno**: distribución + desigualdad + correlación + anomalías + benchmark, para YouTube y TikTok, en una sola respuesta |
 | POST | `/api/v1/tracking/channels` | Alta de un canal al seguimiento (`{platform, identifier, label?, channel_type_id?, channel_type_name?}`) — resuelve el canal contra la API/mock y toma su primer snapshot de una |
+| POST | `/api/v1/tracking/discover-and-track?platform=&total_limit=&sort_by=` | **Alta masiva**: descubre canales reales de todos los temas (como `/channels/discover/by-category`) y trackea hasta `total_limit` de una sola vez, repartidos entre categorías, con su tipo de canal asignado solo |
 | GET | `/api/v1/tracking/channels?include_inactive=` | Lista los canales trackeados con su último snapshot y su tipo de canal |
 | DELETE | `/api/v1/tracking/channels/{tracked_id}` | Baja lógica de un canal trackeado (conserva el historial ya tomado) |
 | GET | `/api/v1/tracking/channels/{tracked_id}/history?days=` | Historial de snapshots diarios de un canal trackeado |
@@ -191,7 +192,7 @@ app/
 │       │   ├── auth.py       # /auth/{register,login,me,admin/set-plan} — autenticación + planes
 │       │   ├── search.py     # POST /analyze, GET /channels/search, /channels/discover* (requieren plan)
 │       │   ├── statistics.py # /analytics/{benchmarks,distribution,inequality,correlation,anomalies,overview}
-│       │   ├── tracking.py   # /tracking/{channels,run-daily-job} — alta/baja + historial + disparo manual del worker
+│       │   ├── tracking.py   # /tracking/{channels,discover-and-track,run-daily-job} — alta/baja individual y masiva + historial + disparo manual del worker
 │       │   ├── catalog.py    # /catalog/{types,summary,channels/{id}/type} — tipos de canal + cantidades
 │       │   └── premium.py    # /premium/channels/{id}/{projections,recommendations} — solo plan premium
 │       └── router.py
@@ -260,14 +261,28 @@ periódico (semanal por default):
    API/mock, se guarda en `dim_channels` (tabla `tracked_channels`, con un
    tipo de canal opcional) y se toma un primer snapshot al instante — no hace
    falta esperar a la corrida del scheduler para ver el primer dato.
-2. **Worker** (`app/services/worker.py`, `run_daily_snapshot`): agrupa los
+2. **Alta masiva** (`POST /tracking/discover-and-track?total_limit=&platform=&sort_by=`):
+   para arrancar con más de un puñado de canales sin darlos de alta uno por
+   uno, reusa el mismo descubrimiento de `/channels/discover/by-category`
+   (trending real de YouTube por categoría+región, o mock determinístico sin
+   `YOUTUBE_API_KEY`) y trackea hasta `total_limit` canales de una sola vez
+   (hasta `DISCOVER_MAX_LIMIT`, 2000 por default — probado con hasta 1000),
+   repartidos entre **todas** las categorías/temas para que ningún género
+   grande (música, gaming) se lleve todo el cupo. Cada canal queda con su
+   tipo de canal asignado solo según la categoría en la que se descubrió
+   (igual que "+ Seguir" desde "Por categoría", pero para muchos a la vez), y
+   no repite una consulta a la API por canal — reusa los datos que ya trajo
+   el descubrimiento, así que agregar 1000 canales no sale caro en cuota. Un
+   canal ya trackeado no se duplica (upsert por `native_id`): correrlo de
+   nuevo más adelante solo suma los que falten.
+3. **Worker** (`app/services/worker.py`, `run_daily_snapshot`): agrupa los
    canales activos por plataforma, los re-consulta (en lote cuando la API lo
    soporta) y guarda un snapshot por canal en `fact_channel_metrics_daily`
    (tabla `channel_metric_snapshots`, una fila por canal/día). Es idempotente
    — correrlo dos veces el mismo día actualiza en vez de duplicar — y
    tolerante a fallos por canal individual (uno que falla no tira abajo el
    resto del lote).
-3. **Scheduler** (`app/core/scheduler.py`, APScheduler): por default corre el
+4. **Scheduler** (`app/core/scheduler.py`, APScheduler): por default corre el
    worker **una vez por semana** (`DAILY_JOB_DAY_OF_WEEK=mon`,
    `DAILY_JOB_HOUR_UTC=9`, `DAILY_JOB_MINUTE_UTC=0` → lunes 09:00 UTC / 06:00
    hora Argentina, que no tiene horario de verano). Para volver a una corrida

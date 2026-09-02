@@ -405,6 +405,29 @@ class DailyJobResultOut(BaseModel):
     errors: list[str]
 
 
+class BulkTrackCategoryResult(BaseModel):
+    """Desglose por categoría/tema de un POST /tracking/discover-and-track."""
+
+    platform: Platform
+    category: str = Field(..., description="Clave interna de la categoría (ver `label` para el nombre legible)")
+    label: str
+    channels_found: int = Field(..., description="Canales que trajo el descubrimiento en esta categoría")
+    channels_tracked: int = Field(..., description="De esos, cuántos se agregaron/reactivaron al seguimiento")
+
+
+class BulkTrackResponse(BaseModel):
+    """Respuesta de POST /api/v1/tracking/discover-and-track."""
+
+    meta: ExecutionMeta
+    total_limit: int
+    total_tracked: int
+    by_category: list[BulkTrackCategoryResult]
+    errors: list[str] = Field(
+        default_factory=list,
+        description="Un canal individual que falló no aborta el resto del lote — queda listado acá.",
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Autenticación y planes de suscripción (free / única / mensual / premium)
 # ─────────────────────────────────────────────────────────────────────────
