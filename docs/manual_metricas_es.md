@@ -120,6 +120,16 @@ resultado se puede ordenar de mayor a menor por cualquiera de las métricas
 de la sección 1 (`followers`, `total_views`, `total_posts`,
 `normalized_er`).
 
+Cada categoría en la respuesta de `/channels/discover/by-category` trae,
+además de la lista de `channels`, un resumen propio:
+
+| Campo | Qué es |
+|---|---|
+| `channel_count` | Cantidad de canales encontrados en esa categoría. |
+| `total_followers` | Suma de seguidores de todos los canales de la categoría. |
+| `avg_normalized_er` | NER promedio (ver sección 2) de los canales de la categoría. |
+| `anomalies` | Canales de esa categoría marcados por el detector de la sección 6 — requiere al menos 4 canales en la categoría para calcularse; con menos, queda vacío (`[]`). |
+
 ## 9. Glosario rápido de campos
 
 | Campo | Significado en una línea |
@@ -192,3 +202,44 @@ Ejemplos de reglas aplicadas:
 Cada recomendación trae `metric` (a qué métrica corresponde), `priority`
 (`alta` / `media` / `informativa`), `finding` (qué se detectó) y
 `recommendation` (la sugerencia en sí).
+
+## 11. Catálogo de tipos de canal
+
+Los canales que se dan de alta al seguimiento semanal (`/tracking/*`, ver
+`README.md`) se pueden clasificar por "tipo de canal" (`ChannelType`) —
+una etiqueta libre, no una tabla de canales nueva. El catálogo combina
+dos orígenes:
+
+- Las **15 categorías nativas de YouTube** (las mismas de la sección 8:
+  música, gaming, entretenimiento, noticias y política, deportes, ciencia
+  y tecnología, educación, comedia, estilo de vida, cine y animación,
+  autos y vehículos, mascotas y animales, viajes y eventos, blogs, ONGs y
+  activismo), sembradas automáticamente la primera vez que arranca la app
+  (`is_custom=False`).
+- **Tipos propios**, creados libremente desde la pestaña "Catálogo" del
+  dashboard o vía `POST /catalog/types` (`is_custom=True`) — por ejemplo
+  "Finanzas personales" si ninguna de las 15 categorías nativas encaja.
+
+| Campo | Qué es |
+|---|---|
+| `id` | Identificador del tipo. |
+| `name` | Nombre visible (ej. "Gaming", "Finanzas personales"). |
+| `slug` | Versión normalizada del nombre (minúsculas, sin acentos, con guiones) usada internamente. |
+| `description` | Descripción opcional, solo en tipos propios. |
+| `is_custom` | `false` = una de las 15 categorías nativas de YouTube; `true` = tipo creado a mano. |
+
+### Endpoints
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `GET` | `/catalog/types` | Lista todos los tipos (nativos + propios). |
+| `POST` | `/catalog/types` | Crea un tipo propio nuevo. Falla con 409 si ya existe un tipo con ese nombre (sin distinguir mayúsculas). Requiere `X-Admin-Token` si `ADMIN_TOKEN` está configurado. |
+| `DELETE` | `/catalog/types/{type_id}` | Borra un tipo. Falla si algún canal trackeado todavía lo tiene asignado — hay que reasignarlo primero. Requiere `X-Admin-Token`. |
+| `GET` | `/catalog/summary` | Cantidad de canales trackeados **activos** por tipo (los dados de baja no se cuentan). Los canales sin tipo asignado todavía se agrupan en un bucket aparte (`channel_type: null`). |
+| `PATCH` | `/catalog/channels/{tracked_id}/type` | Asigna (o quita, mandando `channel_type_id: null`) el tipo de un canal ya trackeado. Requiere `X-Admin-Token`. |
+
+Este router no agrega canales nuevos al seguimiento — solo clasifica los
+que ya existen vía `/tracking/*`. Desde "Por categoría" y desde el
+buscador, "+ Seguir" además asigna automáticamente como tipo la categoría
+de YouTube (o el tema buscado), sin que haga falta elegirlo a mano
+después.
