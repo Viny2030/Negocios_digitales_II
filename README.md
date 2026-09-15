@@ -282,25 +282,51 @@ periódico (semanal por default):
    — correrlo dos veces el mismo día actualiza en vez de duplicar — y
    tolerante a fallos por canal individual (uno que falla no tira abajo el
    resto del lote).
-4. **Scheduler** (`app/core/scheduler.py`, APScheduler): por default corre el
-   worker **una vez por semana** (`DAILY_JOB_DAY_OF_WEEK=mon`,
-   `DAILY_JOB_HOUR_UTC=9`, `DAILY_JOB_MINUTE_UTC=0` → lunes 09:00 UTC / 06:00
-   hora Argentina, que no tiene horario de verano). Para volver a una corrida
-   diaria, poner `DAILY_JOB_DAY_OF_WEEK=*`; `DAILY_JOB_DAY_OF_WEEK` acepta la
-   sintaxis de `APScheduler` `CronTrigger` (`mon`, `mon-fri`, `mon,wed,fri`,
-   etc.). Se puede desactivar con `ENABLE_SCHEDULER=false` y disparar el job
-   vos mismo (cron externo, GitHub Actions, etc.) contra
-   `POST /tracking/run-daily-job`.
+4. **Scheduler** (`app/core/scheduler.py`, APScheduler): corre DOS jobs
+   independientes, cada uno con su propia cadencia.
+
+   - `daily_channel_snapshot`: le toma una foto a los canales YA
+     trackeados. Por default corre **todos los días** (`DAILY_JOB_DAY_OF_WEEK=*`,
+     `DAILY_JOB_HOUR_UTC=9`, `DAILY_JOB_MINUTE_UTC=0` → 09:00 UTC / 06:00 hora
+     Argentina, que no tiene horario de verano). `DAILY_JOB_DAY_OF_WEEK` acepta
+     la sintaxis de `APScheduler` `CronTrigger` (`mon`, `mon-fri`,
+     `mon,wed,fri`, etc.) si se prefiere volver a una cadencia semanal.
+   - `auto_discovery` (`ENABLE_AUTO_DISCOVERY`, default `false`): descubre y
+     trackea canales **nuevos** de todos los temas solo — sin disparar
+     `POST /tracking/discover-and-track` a mano — para que el dataset crezca
+     por su cuenta. Pensado para un proyecto de investigación con acceso
+     real a las APIs; corre 1 vez por semana por default (`AUTO_DISCOVERY_DAY_OF_WEEK=sun`,
+     `AUTO_DISCOVERY_HOUR_UTC=8`) y agrega hasta `AUTO_DISCOVERY_TOTAL_LIMIT`
+     canales por corrida (default 200) de `AUTO_DISCOVERY_PLATFORM`
+     (`youtube`/`tiktok`/`all`). **Ojo con la cuota**: cada corrida gasta
+     cuota de YouTube igual que un `discover-and-track` manual (ver "Límites
+     a tener en cuenta" más abajo) — por eso viene apagado por default en un
+     clon nuevo del repo.
+
+   Ambos se pueden desactivar del todo con `ENABLE_SCHEDULER=false` y
+   disparar a mano (cron externo, GitHub Actions, etc.) contra
+   `POST /tracking/run-daily-job` / `POST /tracking/discover-and-track`.
+   Como respaldo del `daily_channel_snapshot` interno, el repo también trae
+   `.github/workflows/daily-job.yml`: un cron de GitHub Actions (10:00 UTC,
+   1 hora después del snapshot interno) que llama al mismo endpoint por
+   HTTP — útil si el contenedor se reinició justo en la ventana del
+   scheduler interno. Necesita los secrets `APP_BASE_URL` (la URL pública
+   del deploy) y, opcionalmente, `ADMIN_TOKEN` cargados en GitHub (Settings
+   → Secrets and variables → Actions); sin `APP_BASE_URL` cada corrida
+   falla rápido con un mensaje explicando qué falta, no rompe nada.
 
 Por default usa SQLite (`DATABASE_URL`, un único archivo `channel_analytics.db`
 en la raíz del proyecto, cero infraestructura extra). Para escalar a
 producción, cambiar `DATABASE_URL` a `postgresql+asyncpg://...` (ver el stub
-comentado en `docker-compose.yml`) — el resto del código no cambia, porque
-toda la persistencia pasa por `get_session()`/`get_session_ctx()`.
+comentado en `docker-compose.yml`, o la sección "Deploy en Railway" más
+abajo) — el resto del código no cambia, porque toda la persistencia pasa
+por `get_session()`/`get_session_ctx()`.
 
 Los endpoints de escritura de `/tracking/*` (alta, baja, disparo manual)
 quedan abiertos por default (uso local/desarrollo); si configurás
-`ADMIN_TOKEN`, hay que mandar el header `X-Admin-Token: <valor>` en cada uno.
+`ADMIN_TOKEN`, hay que mandar el header `X-Admin-Token: <valor>` en cada uno
+— incluido el job `auto_discovery`, que llama a la misma lógica interna y
+por lo tanto no necesita el token (corre dentro del proceso, no por HTTP).
 
 ## Planes de suscripción y autenticación
 
@@ -356,6 +382,67 @@ generativa) que traduce el benchmark de industria (`/analytics/benchmarks`)
 y la tendencia de seguidores en sugerencias accionables por métrica. Ver
 `docs/manual_metricas_es.md` / `manual_metricas_en.md` para el detalle
 completo de ambas.
+
+## Deploy en Railway
+
+El repo ya está preparado para desplegarse en [Railway](https://railway.app)
+a partir del `Dockerfile` (Railway lo detecta solo, no hace falta Nixpacks
+ni buildpacks).
+
+1. **Conectar el repo**: en Railway, "New Project" → "Deploy from GitHub
+   repo" → elegir `Viny2030/Negocios_digitales_II`. Railway arma el build
+   con el `Dockerfile` de la raíz.
+2. **Agregar Postgres**: "New" → "Database" → "Add PostgreSQL" dentro del
+   mismo proyecto. El filesystem del contenedor de la API es efímero (se
+   borra en cada redeploy/restart), así que el histórico de
+   `dim_channels`/`fact_channel_metrics_daily` necesita vivir en una base
+   externa al contenedor para ser realmente permanente — SQLite (el default
+   de desarrollo) no sirve para esto en producción.
+3. **Variables del servicio API** (Settings → Variables):
+   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (referencia a la
+     variable del addon que acabás de crear; Railway la resuelve sola —
+     `app/core/config.py` reescribe el esquema `postgres://` que inyecta
+     Railway al `postgresql+asyncpg://` que necesita el engine async).
+   - `JWT_SECRET_KEY` = un secreto propio generado para este deploy
+     (`python -c "import secrets; print(secrets.token_hex(32))"`) — **nunca
+     usar el default de desarrollo del código en un deploy público**.
+   - `YOUTUBE_API_KEY` = tu clave real (nunca commitear `.env`; ya está en
+     `.gitignore`, pero si tu clave de desarrollo llegó a compartirse fuera
+     del repo — por ejemplo pegada en un chat — convén rotarla en Google
+     Cloud Console antes de usarla en producción).
+   - `ADMIN_TOKEN` = un valor propio, para no dejar abiertos en
+     producción los endpoints de escritura de `/tracking/*` y
+     `/auth/admin/set-plan`.
+   - Opcionalmente `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET`,
+     `REQUIRE_SUBSCRIPTION`, `DAILY_JOB_DAY_OF_WEEK`, etc. — ver
+     `.env.example` para la lista completa con comentarios.
+4. **Healthcheck**: ya viene configurado en `railway.toml`
+   (`healthcheckPath = "/"`, el mismo endpoint de `GET /` que ya expone
+   `app/main.py`). No hace falta tocar nada.
+5. **Réplicas**: dejar el servicio en **1 sola instancia**
+   (`railway.toml` ya fija `numReplicas = 1`). El worker semanal corre con
+   `APScheduler` *dentro* del proceso de FastAPI (`app/core/scheduler.py`);
+   con más de una réplica, cada una dispararía su propia corrida del job al
+   mismo horario y duplicaría snapshots/llamadas a las APIs externas.
+6. **(Opcional) Sleep del plan**: si el proyecto corre en un plan con
+   "sleep" por inactividad habilitado, desactivalo para ese servicio — si
+   no, el contenedor puede estar dormido justo cuando el scheduler interno
+   tendría que disparar el snapshot semanal.
+7. **(Opcional) Respaldo del cron vía GitHub Actions**: el repo ya trae
+   `.github/workflows/daily-job.yml`, pensado exactamente para este paso —
+   está deshabilitado a propósito (triggers comentados) porque hasta ahora
+   no había una URL pública. Una vez deployado: descomentar `schedule` y
+   `workflow_dispatch` en ese archivo, y cargar los secrets
+   `APP_BASE_URL` (la URL pública que te da Railway, ej.
+   `https://tu-proyecto.up.railway.app`) y `ADMIN_TOKEN` (si lo configuraste)
+   en GitHub (Settings → Secrets and variables → Actions). Sirve como
+   disparador redundante de `POST /api/v1/tracking/run-daily-job` además
+   del scheduler interno.
+
+Con esto, cada push a `main` dispara un redeploy automático en Railway
+(build de la imagen Docker + healthcheck), y los datos de seguimiento
+sobreviven a redeploys, restarts y crashes porque viven en Postgres, no en
+el filesystem del contenedor.
 
 ## Límites a tener en cuenta
 

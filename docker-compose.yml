@@ -11,8 +11,13 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
-  # Descomentar cuando se agregue la capa de persistencia
-  # (dim_channels + fact_channel_metrics_daily) descripta en el README.
+  # Descomentar para probar localmente contra Postgres tal como corre en
+  # Railway (en vez del SQLite default). Si se descomenta, también hay que
+  # descomentar `volumes:` al final del archivo y agregar en el `api`:
+  #     environment:
+  #       DATABASE_URL: postgresql+asyncpg://analytics:analytics@db:5432/channel_analytics
+  #     depends_on:
+  #       - db
   # db:
   #   image: postgres:16-alpine
   #   container_name: channel-analytics-db

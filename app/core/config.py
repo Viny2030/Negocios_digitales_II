@@ -8,7 +8,7 @@ las plataformas activas en esta fase: YouTube y TikTok.
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,18 +59,55 @@ class Settings(BaseSettings):
     # Cambiar a postgresql+asyncpg://... para usar el servicio de docker-compose.
     DATABASE_URL: str = "sqlite+aiosqlite:///./channel_analytics.db"
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        """
+        Railway (y la mayoría de los proveedores de Postgres gestionado)
+        inyectan `DATABASE_URL` con el esquema clásico `postgres://` o
+        `postgresql://` (que SQLAlchemy resuelve al driver síncrono
+        psycopg2 por default). El engine de este proyecto es async, así
+        que necesita explícitamente el dialecto `+asyncpg` — se reescribe
+        acá para no depender de editar a mano la variable en el dashboard
+        de Railway cada vez que se reprovisiona la base.
+        """
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value[len("postgres://"):]
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value[len("postgresql://"):]
+        return value
+
     # --- Worker de seguimiento (dim_channels / fact_channel_metrics_daily) ---
     ENABLE_SCHEDULER: bool = True
-    # Por default corre 1 vez por semana: lunes 09:00 UTC (06:00 hora Argentina,
-    # UTC-3 todo el año, sin horario de verano). `DAILY_JOB_DAY_OF_WEEK` acepta
-    # la sintaxis de APScheduler CronTrigger ("mon".."sun", "mon-fri", "*" para
-    # correr todos los días, etc.) — poner "*" para volver a una corrida diaria.
-    DAILY_JOB_DAY_OF_WEEK: str = "mon"
+    # Corre todos los días por default ("*") — para un proyecto de
+    # investigación con acceso real a las APIs conviene un snapshot diario
+    # en vez de semanal. `DAILY_JOB_DAY_OF_WEEK` acepta la sintaxis de
+    # APScheduler CronTrigger ("mon".."sun", "mon-fri", etc.) si se prefiere
+    # volver a una cadencia semanal.
+    DAILY_JOB_DAY_OF_WEEK: str = "*"
     DAILY_JOB_HOUR_UTC: int = 9
     DAILY_JOB_MINUTE_UTC: int = 0
     # Si se define, los endpoints /api/v1/tracking/* exigen este valor en el
     # header 'X-Admin-Token'. Vacío/None = sin protección (uso local).
     ADMIN_TOKEN: Optional[str] = None
+
+    # --- Alta automática de canales nuevos (investigación) ---
+    # Job periódico independiente del snapshot diario: descubre canales
+    # reales de todos los temas/categorías (mismo camino que
+    # POST /tracking/discover-and-track) y los agrega al seguimiento solo,
+    # para que el dataset crezca sin disparar el alta a mano. Pensado para
+    # un proyecto de investigación con acceso real a las APIs — en `false`
+    # por default para no gastar cuota de golpe en un clon nuevo del repo.
+    ENABLE_AUTO_DISCOVERY: bool = False
+    AUTO_DISCOVERY_PLATFORM: str = "all"  # "youtube" | "tiktok" | "all"
+    AUTO_DISCOVERY_TOTAL_LIMIT: int = 200
+    AUTO_DISCOVERY_SORT_BY: str = "followers"  # followers | total_views | total_posts | normalized_er
+    # Corre 1 vez por semana por default (domingo, antes del primer
+    # snapshot diario de la semana) — sintaxis CronTrigger, igual que
+    # DAILY_JOB_DAY_OF_WEEK.
+    AUTO_DISCOVERY_DAY_OF_WEEK: str = "sun"
+    AUTO_DISCOVERY_HOUR_UTC: int = 8
+    AUTO_DISCOVERY_MINUTE_UTC: int = 0
 
     # --- Descubrimiento multi-tema (GET /channels/discover, /discover/by-category) ---
     # Región usada como default cuando se pide una sola (p. ej. vía query

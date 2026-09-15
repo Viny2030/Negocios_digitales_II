@@ -6,6 +6,7 @@ SQLAlchemy que usan tanto los endpoints de `/api/v1/tracking/*` y
 `/api/v1/catalog/*` como el worker diario.
 """
 import re
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -15,6 +16,7 @@ from app.core.exceptions import ChannelTypeInUseError, ChannelTypeNotFoundError,
 from app.db.models import ChannelMetricSnapshot, ChannelType, TrackedChannel
 from app.models.domain import Platform
 from app.models.schemas import UnifiedChannel
+from app.services.orchestrator import category_label, discover_by_category_unified
 
 
 def slugify(name: str) -> str:
@@ -277,3 +279,120 @@ async def catalog_summary(session: AsyncSession) -> dict:
 
     total = sum(row["channel_count"] for row in by_type)
     return {"total": total, "by_type": by_type}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Descubrimiento + alta masiva de canales (manual vía endpoint, o
+# automática vía el job de `core/scheduler.py` — ver `ENABLE_AUTO_DISCOVERY`)
+# ─────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class DiscoverAndTrackCategoryResult:
+    platform: Platform
+    category: str
+    label: str
+    channels_found: int
+    channels_tracked: int
+
+
+@dataclass
+class DiscoverAndTrackResult:
+    total_limit: int
+    total_tracked: int
+    platforms: list[Platform] = field(default_factory=list)
+    by_category: list[DiscoverAndTrackCategoryResult] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+async def discover_and_track_channels(
+    session: AsyncSession, platform: Platform, total_limit: int, sort_by: str = "followers",
+) -> DiscoverAndTrackResult:
+    """
+    Descubre canales reales de todos los temas/categorías (mismo camino que
+    `GET /channels/discover/by-category`: trending real si hay
+    `YOUTUBE_API_KEY`, mock determinístico si no) y los agrega al
+    seguimiento diario hasta `total_limit`, repartidos en ROUND-ROBIN entre
+    categorías/temas — así una categoría grande (música, gaming) no agota
+    sola todo el cupo. Cada canal queda con su tipo de canal (catálogo)
+    asignado según la categoría en la que se descubrió. Un canal que ya
+    estaba trackeado no se duplica (`create_tracked` hace upsert por
+    `native_id`).
+
+    Lógica compartida entre `POST /api/v1/tracking/discover-and-track`
+    (disparo manual, ver `app/api/v1/endpoints/tracking.py`) y el job
+    automático de descubrimiento (`app/core/scheduler.py`, activado con
+    `ENABLE_AUTO_DISCOVERY=true`) — para que un proyecto de investigación
+    con acceso real a las APIs pueda hacer crecer el dataset solo, sin
+    tener que disparar el alta a mano cada vez.
+    """
+    by_platform = await discover_by_category_unified(
+        platforms=[platform], limit_per_category=total_limit, sort_by=sort_by,
+    )
+
+    # Aplanamos a una lista de "carriles" (uno por categoría/tema de cada
+    # plataforma) para repartir `total_limit` en ROUND-ROBIN -- un canal de
+    # cada carril por vuelta, no categoría por categoría.
+    lanes = [
+        {"platform": p, "category": category_key, "label": category_label(p, category_key),
+         "channels": channels, "next_index": 0, "tracked": 0}
+        for p, by_category in by_platform.items()
+        for category_key, channels in by_category.items()
+    ]
+
+    # Cachea el tipo de canal por (plataforma, categoría) para no repetir
+    # la búsqueda/creación por cada canal de una misma categoría.
+    channel_type_cache: dict[tuple[Platform, str], int] = {}
+    errors: list[str] = []
+    total_tracked = 0
+
+    made_progress = True
+    while total_tracked < total_limit and made_progress:
+        made_progress = False
+        for lane in lanes:
+            if total_tracked >= total_limit:
+                break
+            if lane["next_index"] >= len(lane["channels"]):
+                continue  # este carril ya se quedó sin canales, se saltea
+
+            channel = lane["channels"][lane["next_index"]]
+            lane["next_index"] += 1
+            made_progress = True
+
+            try:
+                cache_key = (lane["platform"], lane["category"])
+                channel_type_id = channel_type_cache.get(cache_key)
+                if channel_type_id is None:
+                    channel_type = await get_or_create_channel_type_by_name(session, lane["label"])
+                    channel_type_id = channel_type.id
+                    channel_type_cache[cache_key] = channel_type_id
+
+                tracked = await create_tracked(
+                    session, platform=lane["platform"], native_id=channel.native_id, handle=channel.handle,
+                    label=None, name=channel.name, url=channel.url, channel_type_id=channel_type_id,
+                )
+                await upsert_snapshot_from_channel(session, tracked.id, channel)
+                total_tracked += 1
+                lane["tracked"] += 1
+            except Exception as e:
+                # Un canal individual que falla (p. ej. una violación de
+                # constraint) puede dejar la sesión en estado "aborted" para
+                # SQLAlchemy -- hay que hacer rollback antes de seguir con el
+                # próximo canal, si no todos los que vengan después fallan en
+                # cascada con el mismo error.
+                await session.rollback()
+                platform_value = lane["platform"].value if hasattr(lane["platform"], "value") else lane["platform"]
+                errors.append(f"{platform_value}:{channel.native_id} — {e}")
+
+    return DiscoverAndTrackResult(
+        total_limit=total_limit,
+        total_tracked=total_tracked,
+        platforms=list(by_platform.keys()),
+        by_category=[
+            DiscoverAndTrackCategoryResult(
+                platform=lane["platform"], category=lane["category"], label=lane["label"],
+                channels_found=len(lane["channels"]), channels_tracked=lane["tracked"],
+            )
+            for lane in lanes
+        ],
+        errors=errors,
+    )

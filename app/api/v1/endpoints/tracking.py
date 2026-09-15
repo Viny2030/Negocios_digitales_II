@@ -30,10 +30,11 @@ from app.models.schemas import (
 from app.services.analytics.normalizer import normalize_channels
 from app.services.collectors.tiktok import TikTokCollector
 from app.services.collectors.youtube import YouTubeCollector
-from app.services.orchestrator import DISCOVER_SORT_FIELDS, category_label, discover_by_category_unified
+from app.services.orchestrator import DISCOVER_SORT_FIELDS
 from app.services.tracked_channels import (
     create_tracked,
     deactivate_tracked,
+    discover_and_track_channels,
     get_channel_type,
     get_or_create_channel_type_by_name,
     get_tracked,
@@ -163,88 +164,31 @@ async def discover_and_track(
     # (ver `YouTubeCollector._discover_trending_channel_ids_by_category`);
     # el recorte a `limit_per_category` pasa después, en memoria. Por eso
     # alcanza con pedirle `total_limit` a cada categoría tal cual y dejar
-    # que el loop de más abajo corte el TOTAL exacto en `total_limit`, sin
-    # necesidad de estimar cuántas categorías tiene cada plataforma.
-    by_platform = await discover_by_category_unified(
-        platforms=[platform], limit_per_category=total_limit, sort_by=sort_by,
+    # que `discover_and_track_channels` corte el TOTAL exacto en
+    # `total_limit` repartiendo en ROUND-ROBIN entre categorías/temas —
+    # mismo camino que usa el job automático (ver `ENABLE_AUTO_DISCOVERY`
+    # en `app/core/scheduler.py`).
+    result = await discover_and_track_channels(
+        session, platform=platform, total_limit=total_limit, sort_by=sort_by,
     )
-
-    # Aplanamos a una lista de "carriles" (uno por categoría/tema de cada
-    # plataforma) para repartir `total_limit` en ROUND-ROBIN -- un canal de
-    # cada carril por vuelta, no categoría por categoría. Si no fuera así,
-    # una categoría grande (p. ej. música) podría agotar sola todo el cupo
-    # antes de que el loop llegue a tocar el resto, dejando "canales de
-    # distintos temas" (el pedido original) sin cumplir cuando `total_limit`
-    # es chico en relación a lo que trae esa única categoría.
-    lanes = [
-        {"platform": p, "category": category_key, "label": category_label(p, category_key),
-         "channels": channels, "next_index": 0, "tracked": 0}
-        for p, by_category in by_platform.items()
-        for category_key, channels in by_category.items()
-    ]
-
-    # Cachea el tipo de canal por (plataforma, categoría) para no repetir
-    # la búsqueda/creación por cada canal de una misma categoría.
-    channel_type_cache: dict[tuple[Platform, str], int] = {}
-    errors: list[str] = []
-    total_tracked = 0
-
-    made_progress = True
-    while total_tracked < total_limit and made_progress:
-        made_progress = False
-        for lane in lanes:
-            if total_tracked >= total_limit:
-                break
-            if lane["next_index"] >= len(lane["channels"]):
-                continue  # este carril ya se quedó sin canales, se saltea
-
-            channel = lane["channels"][lane["next_index"]]
-            lane["next_index"] += 1
-            made_progress = True
-
-            try:
-                cache_key = (lane["platform"], lane["category"])
-                channel_type_id = channel_type_cache.get(cache_key)
-                if channel_type_id is None:
-                    channel_type = await get_or_create_channel_type_by_name(session, lane["label"])
-                    channel_type_id = channel_type.id
-                    channel_type_cache[cache_key] = channel_type_id
-
-                tracked = await create_tracked(
-                    session, platform=lane["platform"], native_id=channel.native_id, handle=channel.handle,
-                    label=None, name=channel.name, url=channel.url, channel_type_id=channel_type_id,
-                )
-                await upsert_snapshot_from_channel(session, tracked.id, channel)
-                total_tracked += 1
-                lane["tracked"] += 1
-            except Exception as e:
-                # Un canal individual que falla (p. ej. una violación de
-                # constraint) puede dejar la sesión en estado "aborted" para
-                # SQLAlchemy -- hay que hacer rollback antes de seguir con el
-                # próximo canal, si no todos los que vengan después fallan en
-                # cascada con el mismo error.
-                await session.rollback()
-                platform_value = lane["platform"].value if hasattr(lane["platform"], "value") else lane["platform"]
-                errors.append(f"{platform_value}:{channel.native_id} — {e}")
-
-    by_category_results = [
-        BulkTrackCategoryResult(
-            platform=lane["platform"], category=lane["category"], label=lane["label"],
-            channels_found=len(lane["channels"]), channels_tracked=lane["tracked"],
-        )
-        for lane in lanes
-    ]
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     return BulkTrackResponse(
         meta=ExecutionMeta(
-            query=f"discover_and_track:{sort_by}", platforms_requested=list(by_platform.keys()),
+            query=f"discover_and_track:{sort_by}",
+            platforms_requested=result.platforms,
             response_time_ms=round(elapsed_ms, 2),
         ),
-        total_limit=total_limit,
-        total_tracked=total_tracked,
-        by_category=by_category_results,
-        errors=errors,
+        total_limit=result.total_limit,
+        total_tracked=result.total_tracked,
+        by_category=[
+            BulkTrackCategoryResult(
+                platform=c.platform, category=c.category, label=c.label,
+                channels_found=c.channels_found, channels_tracked=c.channels_tracked,
+            )
+            for c in result.by_category
+        ],
+        errors=result.errors,
     )
 
 

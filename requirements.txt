@@ -11,6 +11,7 @@ python-dotenv==1.0.1
 # Persistencia + worker diario (seguimiento de canales)
 sqlalchemy==2.0.35
 aiosqlite==0.20.0
+asyncpg==0.29.0  # driver async de Postgres — usado en producción (Railway), ver DATABASE_URL
 apscheduler==3.10.4
 
 # Autenticación y suscripciones (planes free/unica/mensual/premium) —

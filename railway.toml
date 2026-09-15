@@ -1,0 +1,14 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+numReplicas = 1
+# numReplicas se deja fijo en 1 a propósito: el worker diario/semanal
+# corre con APScheduler DENTRO del propio proceso de FastAPI (ver
+# app/core/scheduler.py). Con más de una réplica, cada instancia
+# dispararía su propia corrida del job al mismo horario.

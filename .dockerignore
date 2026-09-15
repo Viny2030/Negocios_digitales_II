@@ -1,0 +1,30 @@
+.git
+.github
+.idea
+.pytest_cache
+.mypy_cache
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+
+# Base local — nunca va en la imagen, cada deploy arranca con la base
+# real definida por DATABASE_URL (Postgres en Railway).
+*.db
+*.sqlite
+*.sqlite3
+
+# Secretos locales — en Railway las variables se cargan desde el
+# dashboard/CLI, nunca desde un .env copiado a la imagen.
+.env
+.env.*
+!.env.example
+
+tests
+README.md
+docker-compose.yml
+.DS_Store
+Thumbs.db
