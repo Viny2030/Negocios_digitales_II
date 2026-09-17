@@ -54,6 +54,24 @@ class UnsupportedPlatformError(ChannelAnalyticsError):
         )
 
 
+class SinglePlatformRequiredError(ChannelAnalyticsError):
+    """
+    Se pidió `platform=all` en un endpoint que necesita una plataforma
+    puntual (youtube o tiktok) — ver `/analytics/distribution`,
+    `/analytics/correlation` y `/analytics/anomalies`. Estos endpoints
+    devuelven estadísticas de UNA sola plataforma por diseño (el campo
+    `platform` de la respuesta es singular); para un resumen conjunto de
+    ambas existe `/analytics/overview`.
+    """
+
+    def __init__(self, endpoint_hint: str = "este endpoint"):
+        super().__init__(
+            f"'{endpoint_hint}' no admite platform='all': elegí 'youtube' o 'tiktok' puntual. "
+            "Para un resumen conjunto de ambas plataformas, usá GET /api/v1/analytics/overview.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class ChannelNotFoundError(ChannelAnalyticsError):
     """El identificador (ID nativo o @handle) no resolvió a ningún canal real."""
 

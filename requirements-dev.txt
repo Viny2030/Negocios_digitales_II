@@ -1,0 +1,5 @@
+# Dependencias solo para desarrollo/CI (no se instalan en el Dockerfile de
+# producción, ver requirements.txt).
+-r requirements.txt
+
+ruff==0.16.8

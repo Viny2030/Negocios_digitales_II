@@ -14,7 +14,6 @@ from typing import Any
 
 from app.models.domain import Platform
 
-
 # Tipo simple: cada colector devuelve una lista de dicts crudos.
 RawChannelData = dict[str, Any]
 
@@ -113,7 +112,7 @@ class BaseCollector(ABC):
         results_per_topic = await asyncio.gather(
             *(self.search(topic, limit_per_category) for topic in DEFAULT_DISCOVER_TOPICS)
         )
-        return dict(zip(DEFAULT_DISCOVER_TOPICS, results_per_topic))
+        return dict(zip(DEFAULT_DISCOVER_TOPICS, results_per_topic, strict=True))
 
     # ------------------------------------------------------------------
     # Utilidad compartida: generación de datos simulados (modo mock).

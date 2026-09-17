@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_premium
 from app.core.exceptions import InsufficientDataError, TrackedChannelNotFoundError
-from app.db.models import User
 from app.db.session import get_session
 from app.models.domain import Platform
 from app.models.schemas import (

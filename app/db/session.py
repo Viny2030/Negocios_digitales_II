@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
@@ -63,7 +64,17 @@ async def _seed_default_channel_types() -> None:
             return
         for label in DISCOVER_CATEGORY_LABELS.values():
             session.add(ChannelType(name=label, slug=slugify(label), is_custom=False))
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Dos procesos arrancando en simultáneo (p. ej. `numReplicas`
+            # temporalmente > 1, o dos `uvicorn --reload` locales contra el
+            # mismo archivo SQLite) pueden pasar el chequeo "¿hay filas?" los
+            # dos a la vez y chocar en el `UNIQUE` de `name`/`slug` al
+            # commitear. No es un error real (el catálogo ya quedó
+            # sembrado por el otro proceso) — se descarta este intento en
+            # vez de tirar abajo el startup.
+            await session.rollback()
 
 
 async def init_db() -> None:

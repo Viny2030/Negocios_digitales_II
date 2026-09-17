@@ -21,12 +21,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
-from app.core.config import get_settings
+from app.core.config import get_settings, production_safety_warnings
 from app.core.exceptions import register_exception_handlers
 from app.core.scheduler import shutdown_scheduler, start_scheduler
 from app.db.session import init_db
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("channel_analytics.startup")
 
 settings = get_settings()
 
@@ -41,6 +42,13 @@ async def lifespan(app: FastAPI):
     # si todavía no existen, y arranca el scheduler del worker diario.
     await init_db()
     start_scheduler()
+    # Chequeo de seguridad "amistoso": no bloquea el arranque (rompería el
+    # uso local sin .env), pero deja bien visible en los logs si quedó
+    # algún default inseguro de desarrollo cargado — ver
+    # `core/config.py::production_safety_warnings` y la sección "Deploy en
+    # Railway" del README.
+    for warning in production_safety_warnings(settings):
+        logger.warning("CONFIG INSEGURA PARA UN DEPLOY PÚBLICO: %s", warning)
     yield
     # Shutdown: apaga el scheduler prolijamente.
     shutdown_scheduler()
@@ -56,10 +64,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# `allow_credentials=True` combinado con un origen comodín ("*") es una
+# combinación que el spec de CORS no permite (los navegadores descartan la
+# respuesta) — Starlette la aceptaba sin quejarse y terminaba mandando las
+# dos cabeceras a la vez, lo que en la práctica es un CORS abierto a
+# cualquier origen disfrazado de "credenciales exigidas". Con la lista de
+# orígenes default (`["*"]`) se desactiva `allow_credentials`; al definir
+# `CORS_ALLOWED_ORIGINS` con dominios concretos en `.env`, se habilita solo
+# para esos.
+_cors_allow_all_origins = "*" in settings.CORS_ALLOWED_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
+    allow_credentials=not _cors_allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

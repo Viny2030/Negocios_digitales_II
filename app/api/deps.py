@@ -61,7 +61,10 @@ async def get_current_user(
     try:
         user_id = int(payload["sub"])
     except (KeyError, TypeError, ValueError):
-        raise NotAuthenticatedError()
+        # `from None`: un JWT con `sub` ausente/no numérico es simplemente un
+        # token inválido (401 de cara al cliente) — no un error interno, así
+        # que no tiene sentido encadenarle el traceback de la conversión.
+        raise NotAuthenticatedError() from None
 
     user = await get_user_by_id(session, user_id)
     if user is None:

@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import require_full_access
 from app.core.config import get_settings
-from app.core.exceptions import InsufficientDataError
+from app.core.exceptions import InsufficientDataError, SinglePlatformRequiredError
 from app.models.domain import Platform
 from app.models.schemas import (
     AnomalyFlag,
@@ -45,6 +45,27 @@ from app.services.orchestrator import SUPPORTED_PLATFORMS, fetch_unified_channel
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 settings = get_settings()
+
+
+def _require_single_platform(platform: Platform, endpoint_hint: str) -> Platform:
+    """
+    `/distribution`, `/correlation` y `/anomalies` devuelven estadísticas
+    de UNA sola plataforma (el campo `platform` de la respuesta es
+    singular) — a diferencia de `/channels/search` o `/channels/discover`,
+    NO soportan `platform=all`.
+
+    Bug corregido acá: antes se aceptaba `platform=all` sin validar, se
+    consultaban YouTube y TikTok igual (gastando cuota de las dos APIs
+    para nada) y después se hacía `channels_by_platform.get(platform, [])`
+    con la clave `Platform.ALL` — que nunca está en ese diccionario (queda
+    armado con las claves ya resueltas, `youtube`/`tiktok`) — así que
+    siempre daba una lista vacía y el endpoint respondía 422 "no hay
+    canales suficientes" aunque sí había datos reales. Ahora se rechaza
+    `all` de entrada con un 400 explícito, antes de gastar ninguna cuota.
+    """
+    if platform == Platform.ALL:
+        raise SinglePlatformRequiredError(endpoint_hint)
+    return platform
 
 
 @router.get("/benchmarks", response_model=BenchmarkResponse, summary="Métricas y benchmarks de industria por plataforma")
@@ -77,6 +98,7 @@ async def distribution(
     limit: int = Query(settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT),
 ) -> DistributionResponse:
     start = time.perf_counter()
+    platform = _require_single_platform(platform, "/analytics/distribution")
 
     channels_by_platform = await fetch_unified_channels(query=query, platforms=[platform], limit=limit)
     channels = channels_by_platform.get(platform, [])
@@ -157,6 +179,7 @@ async def correlation(
     limit: int = Query(settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT),
 ) -> CorrelationResponse:
     start = time.perf_counter()
+    platform = _require_single_platform(platform, "/analytics/correlation")
 
     channels_by_platform = await fetch_unified_channels(query=query, platforms=[platform], limit=limit)
     channels = channels_by_platform.get(platform, [])
@@ -193,6 +216,7 @@ async def anomalies(
     limit: int = Query(settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT),
 ) -> AnomalyResponse:
     start = time.perf_counter()
+    platform = _require_single_platform(platform, "/analytics/anomalies")
 
     channels_by_platform = await fetch_unified_channels(query=query, platforms=[platform], limit=limit)
     channels = channels_by_platform.get(platform, [])

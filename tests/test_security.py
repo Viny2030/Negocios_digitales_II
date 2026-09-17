@@ -2,7 +2,6 @@
 Tests de `core/security.py`: hashing de contraseñas (bcrypt) y JWT de
 sesión (pyjwt) usados por la autenticación armada desde cero.
 """
-import pytest
 
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 

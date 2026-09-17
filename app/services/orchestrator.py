@@ -64,7 +64,7 @@ async def fetch_unified_channels(
     tasks = [_fetch_and_normalize(platform, query, limit) for platform in resolved_platforms]
     results_per_platform = await asyncio.gather(*tasks)
 
-    return dict(zip(resolved_platforms, results_per_platform))
+    return dict(zip(resolved_platforms, results_per_platform, strict=True))
 
 
 def build_summary(channels_by_platform: dict[Platform, list[UnifiedChannel]]) -> list[PlatformSummary]:
@@ -141,7 +141,7 @@ async def discover_unified_channels(
     tasks = [_discover_and_normalize(platform, limit, sort_by) for platform in resolved_platforms]
     results_per_platform = await asyncio.gather(*tasks)
 
-    return dict(zip(resolved_platforms, results_per_platform))
+    return dict(zip(resolved_platforms, results_per_platform, strict=True))
 
 
 def category_label(platform: Platform, category_key: str) -> str:
@@ -203,4 +203,4 @@ async def discover_by_category_unified(
     ]
     results_per_platform = await asyncio.gather(*tasks)
 
-    return dict(zip(resolved_platforms, results_per_platform))
+    return dict(zip(resolved_platforms, results_per_platform, strict=True))

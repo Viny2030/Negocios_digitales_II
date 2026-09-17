@@ -1,0 +1,23 @@
+# Config de ruff (lint + format en una sola herramienta, rápida) para
+# Negocios_digitales_II. Pensada para agregar valor sin reescribir todo el
+# estilo existente del repo de una — reglas conservadoras (errores reales,
+# imports, código muerto), no las de estilo más subjetivas/ruidosas.
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = [
+    "E",   # pycodestyle (errores)
+    "F",   # pyflakes (imports sin usar, variables no definidas, etc.)
+    "I",   # isort (orden de imports)
+    "UP",  # pyupgrade (sintaxis moderna de Python)
+    "B",   # flake8-bugbear (errores comunes / trampas del lenguaje)
+]
+ignore = [
+    "E501",  # línea larga: hay muchos docstrings/comentarios en español que la superan a propósito
+    "B008",  # function-call-in-default-argument: es el patrón idiomático de FastAPI (Depends()/Query()/Header() como default) — falso positivo acá
+    "UP042", # sugiere StrEnum en vez de `class X(str, Enum)`; cambia str(member) (deja de incluir el nombre de la clase) y el proyecto se apoya en el mixin `str` a propósito en varios lados — no vale el riesgo por una preferencia de estilo
+]
+
+[lint.isort]
+known-first-party = ["app"]

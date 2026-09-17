@@ -6,7 +6,6 @@ validación de tipos. Solo se incluyen las credenciales necesarias para
 las plataformas activas en esta fase: YouTube y TikTok.
 """
 from functools import lru_cache
-from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,6 +13,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 def _default_discover_regions() -> list[str]:
     return ["AR", "MX", "ES", "US"]
+
+
+# Default de desarrollo de JWT_SECRET_KEY — separado en una constante (en vez
+# de repetir el literal) para poder detectarlo en `production_safety_warnings`
+# sin que un futuro cambio del valor default rompa esa detección.
+_DEV_JWT_SECRET_KEY = "dev-only-secret-cambiar-en-produccion-negocios-digitales-ii"
 
 
 class Settings(BaseSettings):
@@ -30,15 +35,34 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = False
 
+    # --- CORS ---
+    # Default `["*"]` (cualquier origen) para que el dashboard y Swagger UI
+    # funcionen de una sin configurar nada en local. IMPORTANTE: con "*" en
+    # la lista, `app/main.py` desactiva `allow_credentials` automáticamente
+    # — el spec de CORS prohíbe combinar origen comodín con credenciales
+    # (los navegadores ignoran la respuesta), así que dejar ambos a la vez
+    # no protege nada, solo esconde que en la práctica el CORS queda
+    # abierto. Antes de un deploy público, poner acá los dominios reales
+    # (separados por coma): `CORS_ALLOWED_ORIGINS=https://tu-dashboard.com`.
+    CORS_ALLOWED_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
+
+    @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, value):
+        """Acepta tanto una lista JSON como una cadena separada por comas en `.env`."""
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
     # --- YouTube Data API v3 ---
-    YOUTUBE_API_KEY: Optional[str] = None
+    YOUTUBE_API_KEY: str | None = None
     YOUTUBE_API_BASE_URL: str = "https://www.googleapis.com/youtube/v3"
     # Cuota diaria estándar del proyecto (10.000 unidades/día)
     YOUTUBE_DAILY_QUOTA_UNITS: int = 10_000
 
     # --- TikTok (Research/Display API oficial) ---
-    TIKTOK_CLIENT_KEY: Optional[str] = None
-    TIKTOK_CLIENT_SECRET: Optional[str] = None
+    TIKTOK_CLIENT_KEY: str | None = None
+    TIKTOK_CLIENT_SECRET: str | None = None
     TIKTOK_API_BASE_URL: str = "https://open.tiktokapis.com/v2"
 
     # Si no hay credenciales configuradas, los colectores devuelven datos
@@ -89,7 +113,7 @@ class Settings(BaseSettings):
     DAILY_JOB_MINUTE_UTC: int = 0
     # Si se define, los endpoints /api/v1/tracking/* exigen este valor en el
     # header 'X-Admin-Token'. Vacío/None = sin protección (uso local).
-    ADMIN_TOKEN: Optional[str] = None
+    ADMIN_TOKEN: str | None = None
 
     # --- Alta automática de canales nuevos (investigación) ---
     # Job periódico independiente del snapshot diario: descubre canales
@@ -137,7 +161,7 @@ class Settings(BaseSettings):
     # IMPORTANTE: este default es solo para desarrollo/proyecto universitario
     # — en un despliegue real hay que sobreescribirlo en `.env` con un valor
     # secreto propio (nunca commitear ese valor real).
-    JWT_SECRET_KEY: str = "dev-only-secret-cambiar-en-produccion-negocios-digitales-ii"
+    JWT_SECRET_KEY: str = _DEV_JWT_SECRET_KEY
     JWT_ALGORITHM: str = "HS256"
     # Duración del token de sesión: 7 días por default.
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
@@ -158,3 +182,39 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Devuelve una instancia cacheada de Settings (singleton)."""
     return Settings()
+
+
+def production_safety_warnings(settings: Settings) -> list[str]:
+    """
+    Chequeo "amistoso" (no bloquea el arranque) de configuración insegura
+    para un deploy público — se loguea como WARNING en el startup de
+    FastAPI (ver `app/main.py::lifespan`). Cubre justo los dos defaults de
+    desarrollo que el README pide sobreescribir antes de deployar a
+    Railway (sección "Deploy en Railway"), para que quede visible en los
+    logs y no dependa de que alguien se acuerde de leer el README:
+
+      - `JWT_SECRET_KEY` sigue siendo el default hardcodeado en el código
+        público del repo -> cualquiera puede forjar un JWT de sesión válido
+        para cualquier usuario.
+      - `ADMIN_TOKEN` vacío -> las rutas de escritura de `/tracking/*`,
+        `/catalog/*` y, la más sensible, `POST /auth/admin/set-plan` (única
+        forma de "cobrar" un plan hoy) quedan abiertas sin autenticación.
+
+    Ambos son perfectamente normales en desarrollo local (por eso esto solo
+    avisa, no rechaza arrancar) — el objetivo es que sea imposible pasarlos
+    por alto una vez que la app queda expuesta públicamente.
+    """
+    warnings: list[str] = []
+    if settings.JWT_SECRET_KEY == _DEV_JWT_SECRET_KEY:
+        warnings.append(
+            "JWT_SECRET_KEY sigue siendo el valor default de desarrollo (hardcodeado en el código "
+            "público del repo) — cualquiera puede forjar tokens de sesión válidos. Sobreescribilo en "
+            "las variables de entorno del deploy antes de exponer la API públicamente."
+        )
+    if not settings.ADMIN_TOKEN:
+        warnings.append(
+            "ADMIN_TOKEN no está configurado — las rutas de escritura de /tracking/*, /catalog/* y "
+            "POST /auth/admin/set-plan (alta/cambio de plan) quedan abiertas sin protección. Configurá "
+            "ADMIN_TOKEN en las variables de entorno del deploy antes de exponer la API públicamente."
+        )
+    return warnings

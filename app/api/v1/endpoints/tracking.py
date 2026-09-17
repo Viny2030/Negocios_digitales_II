@@ -15,6 +15,7 @@ from app.api.deps import verify_admin_token
 from app.core.config import get_settings
 from app.core.exceptions import ChannelNotFoundError, TrackedChannelNotFoundError
 from app.db.session import get_session
+from app.models.domain import Platform
 from app.models.schemas import (
     BulkTrackCategoryResult,
     BulkTrackResponse,
@@ -44,7 +45,6 @@ from app.services.tracked_channels import (
     upsert_snapshot_from_channel,
 )
 from app.services.worker import run_daily_snapshot
-from app.models.domain import Platform
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
 settings = get_settings()

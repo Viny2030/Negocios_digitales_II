@@ -4,12 +4,10 @@ y la entidad universal `UnifiedChannel` que normaliza YouTube y TikTok
 bajo un mismo esquema.
 """
 from datetime import date, datetime
-from typing import Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.domain import ContentFormat, ContentTier, Plan, Platform
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # Entidad Universal Canal
@@ -25,8 +23,8 @@ class UnifiedChannel(BaseModel):
     platform: Platform
     content_format: ContentFormat
     name: str
-    handle: Optional[str] = Field(None, description="@usuario / nombre corto público")
-    url: Optional[str] = None
+    handle: str | None = Field(None, description="@usuario / nombre corto público")
+    url: str | None = None
 
     # --- Métricas de inventario / audiencia ---
     followers: int = Field(..., ge=0, description="Suscriptores (YouTube) o seguidores (TikTok)")
@@ -67,7 +65,7 @@ class ChannelSearchRequest(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────
 
 class ExecutionMeta(BaseModel):
-    query: Optional[str] = None
+    query: str | None = None
     platforms_requested: list[Platform] = []
     response_time_ms: float
     status: str = "ok"
@@ -124,7 +122,7 @@ class PlatformSummary(BaseModel):
     total_followers: int
     total_views: int
     avg_normalized_er: float
-    benchmark: Optional[BenchmarkComparison] = Field(
+    benchmark: BenchmarkComparison | None = Field(
         None, description="Comparación del ER promedio observado contra el benchmark de industria"
     )
 
@@ -219,14 +217,14 @@ class DistributionResponse(BaseModel):
     followers: DistributionStats
     normalized_er: DistributionStats
     tier_breakdown: dict[str, int]
-    benchmark: Optional[BenchmarkComparison] = None
+    benchmark: BenchmarkComparison | None = None
 
 
 class InequalityStats(BaseModel):
     platform: Platform
     n: int
     gini_followers: float = Field(..., ge=0, le=1)
-    pareto_alpha: Optional[float] = None
+    pareto_alpha: float | None = None
     top_10_pct_share: float = Field(..., description="Proporción de seguidores en manos del top 10%")
 
 
@@ -272,13 +270,13 @@ class PlatformOverview(BaseModel):
 
     platform: Platform
     channel_count: int
-    followers: Optional[DistributionStats] = None
-    normalized_er: Optional[DistributionStats] = None
+    followers: DistributionStats | None = None
+    normalized_er: DistributionStats | None = None
     tier_breakdown: dict[str, int] = {}
-    inequality: Optional[InequalityStats] = None
+    inequality: InequalityStats | None = None
     correlations: list[CorrelationPair] = []
     anomalies: list[AnomalyFlag] = []
-    benchmark: Optional[BenchmarkComparison] = None
+    benchmark: BenchmarkComparison | None = None
 
 
 class OverviewResponse(BaseModel):
@@ -294,7 +292,7 @@ class ChannelTypeCreate(BaseModel):
     """Payload de POST /api/v1/catalog/types — crear un tipo de canal propio."""
 
     name: str = Field(..., min_length=1, max_length=120, description="Nombre del tipo (ej: 'Finanzas personales')")
-    description: Optional[str] = Field(None, max_length=500)
+    description: str | None = Field(None, max_length=500)
 
 
 class ChannelTypeOut(BaseModel):
@@ -303,7 +301,7 @@ class ChannelTypeOut(BaseModel):
     id: int
     name: str
     slug: str
-    description: Optional[str] = None
+    description: str | None = None
     is_custom: bool = Field(..., description="True = tipo propio creado a mano; False = categoría nativa de YouTube")
     created_at: datetime
 
@@ -316,13 +314,13 @@ class ChannelTypeListResponse(BaseModel):
 class SetChannelTypeRequest(BaseModel):
     """Payload de PATCH /api/v1/catalog/channels/{tracked_id}/type."""
 
-    channel_type_id: Optional[int] = Field(None, description="null = quitar el tipo asignado")
+    channel_type_id: int | None = Field(None, description="null = quitar el tipo asignado")
 
 
 class ChannelTypeCount(BaseModel):
     """Cuántos canales trackeados hay de un tipo dado (o sin tipo asignado)."""
 
-    channel_type: Optional[ChannelTypeOut] = Field(None, description="None = canales sin tipo asignado todavía")
+    channel_type: ChannelTypeOut | None = Field(None, description="None = canales sin tipo asignado todavía")
     channel_count: int
 
 
@@ -346,11 +344,11 @@ class TrackedChannelCreate(BaseModel):
         ..., min_length=1, max_length=200,
         description="ID nativo del canal (p. ej. 'UCxxxx' en YouTube) o @handle",
     )
-    label: Optional[str] = Field(None, max_length=200, description="Etiqueta propia, opcional (ej: 'Competidor A')")
-    channel_type_id: Optional[int] = Field(
+    label: str | None = Field(None, max_length=200, description="Etiqueta propia, opcional (ej: 'Competidor A')")
+    channel_type_id: int | None = Field(
         None, description="Id de un tipo de canal ya existente (ver GET /catalog/types)",
     )
-    channel_type_name: Optional[str] = Field(
+    channel_type_name: str | None = Field(
         None, max_length=120,
         description=(
             "Alternativa a `channel_type_id`: nombre de un tipo de canal. Si ya existe (comparación "
@@ -376,14 +374,14 @@ class TrackedChannelOut(BaseModel):
     id: int
     platform: Platform
     native_id: str
-    handle: Optional[str] = None
-    label: Optional[str] = None
-    name: Optional[str] = None
-    url: Optional[str] = None
+    handle: str | None = None
+    label: str | None = None
+    name: str | None = None
+    url: str | None = None
     active: bool
     created_at: datetime
-    latest_snapshot: Optional[ChannelSnapshotOut] = None
-    channel_type: Optional[ChannelTypeOut] = None
+    latest_snapshot: ChannelSnapshotOut | None = None
+    channel_type: ChannelTypeOut | None = None
 
 
 class TrackedChannelListResponse(BaseModel):
@@ -457,7 +455,7 @@ class UserOut(BaseModel):
     id: int
     email: str
     plan: str
-    plan_active_until: Optional[datetime] = None
+    plan_active_until: datetime | None = None
     report_credits: int
     is_admin: bool
     has_full_stats_access: bool
@@ -481,10 +479,10 @@ class AdminSetPlanRequest(BaseModel):
 
     email: str = Field(..., min_length=5, max_length=255)
     plan: Plan
-    active_days: Optional[int] = Field(
+    active_days: int | None = Field(
         None, ge=1, le=3650, description="Vigencia en días para 'mensual'/'premium' (default 30 si se omite)",
     )
-    add_report_credits: Optional[int] = Field(
+    add_report_credits: int | None = Field(
         None, ge=1, le=1000, description="Créditos de reporte a sumar para 'unica' (default 1 si se omite)",
     )
 

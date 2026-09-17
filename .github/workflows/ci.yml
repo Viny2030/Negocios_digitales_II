@@ -1,0 +1,34 @@
+# CI: corre el lint (ruff) y el test suite (pytest) en cada push/PR contra
+# main. Antes de este workflow, los 100+ tests del repo (que corren
+# perfecto en local) no se ejecutaban en ningún lado automáticamente — un
+# bug como el de `platform=all` en /analytics/* podía llegar a `main` sin
+# que nadie lo notara. Esto es intencionalmente independiente de
+# `daily-job.yml` (que dispara el worker diario contra un deploy real): acá
+# no se toca ninguna API externa ni credencial, todo corre en modo mock.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias (prod + dev)
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest)
+        run: pytest -q

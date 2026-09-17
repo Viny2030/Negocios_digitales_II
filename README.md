@@ -112,6 +112,27 @@ docker compose up --build
 pytest -v
 ```
 
+## Lint
+
+El repo usa [ruff](https://docs.astral.sh/ruff/) (lint + formateo, una sola
+herramienta) con una config conservadora en `ruff.toml` — reglas de errores
+reales, imports y trampas comunes del lenguaje, no las de estilo más
+subjetivas. Instalar y correr:
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+```
+
+## CI
+
+`.github/workflows/ci.yml` corre `ruff check .` y `pytest -q` en cada push y
+Pull Request contra `main` (todo en modo mock, sin tocar credenciales ni
+APIs reales) — así un bug que rompe un test o el lint no puede llegar a
+`main` sin que se note. Es independiente de `.github/workflows/daily-job.yml`
+(que dispara el worker diario contra un deploy real y queda deshabilitado
+hasta que exista una URL pública, ver "Deploy en Railway").
+
 ## Endpoints principales
 
 | Método | Ruta | Descripción |
@@ -413,9 +434,21 @@ ni buildpacks).
    - `ADMIN_TOKEN` = un valor propio, para no dejar abiertos en
      producción los endpoints de escritura de `/tracking/*` y
      `/auth/admin/set-plan`.
+   - `CORS_ALLOWED_ORIGINS` = el/los dominio(s) real(es) donde vaya a vivir
+     el frontend que consuma esta API (separados por coma si son varios),
+     por ejemplo `https://tu-proyecto.up.railway.app`. El default (`*`,
+     cualquier origen) sirve para desarrollar local y para pegarle desde
+     Swagger UI, pero antes de un deploy público conviene restringirlo —
+     ver el comentario de `CORS_ALLOWED_ORIGINS` en `app/core/config.py`.
    - Opcionalmente `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET`,
      `REQUIRE_SUBSCRIPTION`, `DAILY_JOB_DAY_OF_WEEK`, etc. — ver
      `.env.example` para la lista completa con comentarios.
+
+   Si alguno de estos dos primeros puntos (`JWT_SECRET_KEY`/`ADMIN_TOKEN`)
+   se olvida, no pasa desapercibido: `app/core/config.py::
+   production_safety_warnings` corre en el startup de la app (ver
+   `app/main.py::lifespan`) y deja un `WARNING` bien visible en los logs
+   del deploy avisando cuál de los dos quedó con el default inseguro.
 4. **Healthcheck**: ya viene configurado en `railway.toml`
    (`healthcheckPath = "/"`, el mismo endpoint de `GET /` que ya expone
    `app/main.py`). No hace falta tocar nada.

@@ -9,7 +9,7 @@ Nota de seguridad: bcrypt trunca/ignora silenciosamente lo que exceda 72
 bytes de contraseña — irrelevante en la práctica para contraseñas
 normales, documentado acá por transparencia.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -36,7 +36,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 def create_access_token(user_id: int, email: str) -> str:
     """Emite un JWT de sesión (`sub`=id de usuario) válido por `JWT_EXPIRE_MINUTES`."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "email": email,

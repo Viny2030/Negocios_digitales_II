@@ -14,15 +14,12 @@ publicación) que corresponden a la capa de persistencia diaria descripta
 en la arquitectura — por eso se dejan implementadas como utilidades puras,
 listas para conectarse cuando exista ese worker.
 """
-import math
-from statistics import pstdev
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from app.core.exceptions import InsufficientDataError
 from app.models.domain import ContentFormat, ContentTier, Platform
 from app.models.schemas import UnifiedChannel
 from app.services.collectors.base import RawChannelData
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # 1. Índices de Normalización Multicanal
@@ -41,7 +38,7 @@ def normalized_engagement_rate(interactions: float, direct_consumption: float) -
     return round((interactions / direct_consumption) * 100, 4)
 
 
-def attention_score(avg_time_consumed_seconds: float, total_duration_seconds: float) -> Optional[float]:
+def attention_score(avg_time_consumed_seconds: float, total_duration_seconds: float) -> float | None:
     """
     AS = Tiempo promedio consumido / Duración total del contenido
 
@@ -55,7 +52,7 @@ def attention_score(avg_time_consumed_seconds: float, total_duration_seconds: fl
     return round(min(score, 1.0) * 100, 4)
 
 
-def production_frequency_index(monthly_posts: float, interval_std_dev_days: float) -> Optional[float]:
+def production_frequency_index(monthly_posts: float, interval_std_dev_days: float) -> float | None:
     """
     PFI = Publicaciones mensuales × Regularidad del intervalo temporal (1/σΔt)
 

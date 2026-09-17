@@ -16,6 +16,7 @@ diario idempotente: correrlo dos veces el mismo día no duplica filas.
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -23,7 +24,6 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
-    Boolean,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
