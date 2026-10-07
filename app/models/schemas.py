@@ -40,7 +40,19 @@ class UnifiedChannel(BaseModel):
 
     # --- Métricas normalizadas (ver services/analytics/normalizer.py) ---
     normalized_er: float = Field(0.0, description="Engagement rate normalizado, en % (NER)")
+    engagement_videos_sampled: int | None = Field(
+        None,
+        description="YouTube: cantidad de videos recientes sobre los que se calculó el NER "
+        "((likes + comentarios) / vistas de esos videos). None = no se pudo muestrear "
+        "(NER no disponible para ese canal, no significa engagement cero).",
+    )
     tier: ContentTier
+
+    is_mock: bool = Field(
+        False,
+        description="True si el canal es SIMULADO (modo mock, sin credenciales de la plataforma) "
+        "-- nunca mezclar con datos reales en un análisis.",
+    )
 
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -125,6 +137,7 @@ class PlatformSummary(BaseModel):
     benchmark: BenchmarkComparison | None = Field(
         None, description="Comparación del ER promedio observado contra el benchmark de industria"
     )
+    mock_data: bool = Field(False, description="True si los canales de esta plataforma son simulados (modo mock)")
 
 
 class SearchResponse(BaseModel):
@@ -457,6 +470,7 @@ class UserOut(BaseModel):
     plan: str
     plan_active_until: datetime | None = None
     report_credits: int
+    unica_access_until: datetime | None = None
     is_admin: bool
     has_full_stats_access: bool
     has_premium_access: bool

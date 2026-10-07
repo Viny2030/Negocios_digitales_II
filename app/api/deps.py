@@ -21,7 +21,9 @@ romper el uso sin login que tenía el proyecto antes de agregar planes.
 Poner `REQUIRE_SUBSCRIPTION=true` en `.env` para exigir de verdad sesión +
 plan activo (p. ej. para una demo/entrega formal del sistema de planes).
 """
-from fastapi import Depends, Header
+import secrets
+
+from fastapi import Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -34,14 +36,18 @@ from app.core.exceptions import (
 from app.core.security import decode_access_token
 from app.db.models import User
 from app.db.session import get_session
-from app.services.users import consume_report_credit, get_user_by_id
+from app.services.users import get_user_by_id, open_report_window
 
 settings = get_settings()
 
 
 async def verify_admin_token(x_admin_token: str | None = Header(default=None)) -> None:
     """Exige `X-Admin-Token` solo si `ADMIN_TOKEN` está configurado (default local = sin protección)."""
-    if settings.ADMIN_TOKEN and x_admin_token != settings.ADMIN_TOKEN:
+    if not settings.ADMIN_TOKEN:
+        return
+    # compare_digest: comparación en tiempo constante (un `!=` común deja
+    # inferir el token carácter por carácter midiendo tiempos de respuesta).
+    if x_admin_token is None or not secrets.compare_digest(x_admin_token, settings.ADMIN_TOKEN):
         raise UnauthorizedError()
 
 
@@ -86,13 +92,25 @@ async def get_current_user_optional(
 
 
 async def require_full_access(
+    request: Request,
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> User | None:
     """
     Exige acceso a "toda la estadística": suscripción 'mensual'/'premium'
-    activa (por fecha), o plan 'unica' con al menos 1 crédito de reporte
-    disponible (se consume 1 crédito por cada llamada bajo esta regla).
+    activa (por fecha), o plan 'unica' con una ventana de reporte abierta o
+    al menos 1 crédito disponible.
+
+    Plan 'unica': un crédito = un reporte = una ventana de
+    `UNICA_REPORT_WINDOW_HOURS` horas de consultas libres (el dashboard hace
+    varias llamadas por pantalla; antes cada una gastaba un crédito). El
+    crédito NO se descuenta acá: se marca como pendiente en `request.state`
+    y lo descuenta `consume_report_credit_on_success` (middleware, ver
+    `app/main.py`) solo si la respuesta terminó bien (< 400). Así una
+    request que falla (422 por un parámetro inválido, 400, 502 de la API
+    externa...) no gasta el crédito. No alcanza con una dependencia con
+    `yield`: FastAPI corre su código de salida normalmente aunque la
+    request termine en 422 por validación.
 
     Si `settings.REQUIRE_SUBSCRIPTION` es `False` (default), no hace nada
     — ni siquiera exige `Authorization` — y el endpoint queda abierto.
@@ -101,12 +119,31 @@ async def require_full_access(
         return None
 
     user = await get_current_user(authorization, session)
-    if user.has_active_subscription:
+    if user.has_active_subscription or (user.plan == "unica" and user.has_open_report_window):
         return user
     if user.plan == "unica" and user.report_credits > 0:
-        await consume_report_credit(session, user)
+        request.state.pending_report_credit = (session.bind, user.id)
         return user
     raise SubscriptionRequiredError()
+
+
+async def consume_report_credit_on_success(request: Request, call_next):
+    """
+    Middleware HTTP: si la request usó un crédito 'unica' (ver
+    `require_full_access`) y la respuesta salió bien, abre la ventana de
+    reporte descontando el crédito. Usa una sesión nueva sobre el MISMO
+    engine que usó la request (la de la dependencia ya se cerró a esta
+    altura), así funciona igual con la base real y con la de los tests.
+    """
+    response = await call_next(request)
+    pending = getattr(request.state, "pending_report_credit", None)
+    if pending is not None and response.status_code < 400:
+        bind, user_id = pending
+        async with AsyncSession(bind, expire_on_commit=False) as session:
+            user = await get_user_by_id(session, user_id)
+            if user is not None:
+                await open_report_window(session, user)
+    return response
 
 
 async def require_premium(

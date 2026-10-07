@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, verify_admin_token
 from app.core.exceptions import InvalidCredentialsError, UserNotFoundError
+from app.core.rate_limit import limit_auth_attempts
 from app.core.security import create_access_token, verify_password
 from app.db.models import User
 from app.db.session import get_session
@@ -49,6 +50,7 @@ def _user_out(user: User) -> UserOut:
 
 @router.post(
     "/register", response_model=TokenResponse, summary="Crear una cuenta nueva (arranca en plan 'free')",
+    dependencies=[Depends(limit_auth_attempts)],
 )
 async def register(payload: UserRegisterRequest, session: AsyncSession = Depends(get_session)) -> TokenResponse:
     user = await create_user(session, email=payload.email, password=payload.password)
@@ -56,7 +58,9 @@ async def register(payload: UserRegisterRequest, session: AsyncSession = Depends
     return TokenResponse(access_token=token, user=_user_out(user))
 
 
-@router.post("/login", response_model=TokenResponse, summary="Iniciar sesión")
+@router.post(
+    "/login", response_model=TokenResponse, summary="Iniciar sesión", dependencies=[Depends(limit_auth_attempts)],
+)
 async def login(payload: UserLoginRequest, session: AsyncSession = Depends(get_session)) -> TokenResponse:
     user = await get_user_by_email(session, payload.email)
     if user is None or not verify_password(payload.password, user.hashed_password):

@@ -16,6 +16,7 @@ diario idempotente: correrlo dos veces el mismo día no duplica filas.
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -98,10 +99,16 @@ class ChannelMetricSnapshot(Base):
     tracked_channel_id: Mapped[int] = mapped_column(ForeignKey("tracked_channels.id"), nullable=False)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    followers: Mapped[int] = mapped_column(Integer, default=0)
-    total_views: Mapped[int] = mapped_column(Integer, default=0)
-    total_posts: Mapped[int] = mapped_column(Integer, default=0)
-    raw_interactions: Mapped[int] = mapped_column(Integer, default=0)
+    # BigInteger (no Integer): en Postgres INTEGER llega a ~2.147 millones, y las
+    # vistas acumuladas de un canal grande de YouTube superan eso por mucho (hay
+    # canales con decenas de miles de millones) -- con Integer el INSERT falla con
+    # "value out of int32 range". En SQLite no se notaba porque sus enteros son de
+    # 64 bits siempre. Ver la migración `_migrate_metric_columns_to_bigint` en
+    # `db/session.py` para bases Postgres ya creadas con la versión anterior.
+    followers: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_views: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_posts: Mapped[int] = mapped_column(BigInteger, default=0)
+    raw_interactions: Mapped[int] = mapped_column(BigInteger, default=0)
     normalized_er: Mapped[float] = mapped_column(Float, default=0.0)
     tier: Mapped[str] = mapped_column(String(20), default="nano")
 
@@ -133,6 +140,10 @@ class User(Base):
     plan_active_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Saldo de reportes puntuales comprados bajo el plan 'unica'.
     report_credits: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Fin de la "ventana de reporte" abierta por el último crédito 'unica'
+    # consumido (ver `UNICA_REPORT_WINDOW_HOURS`): mientras no venza, las
+    # consultas de estadística no descuentan más créditos.
+    unica_access_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -146,12 +157,19 @@ class User(Base):
         return self.plan_active_until >= datetime.utcnow()
 
     @property
+    def has_open_report_window(self) -> bool:
+        """True si un crédito 'unica' ya abrió una ventana de reporte que todavía no venció."""
+        return self.unica_access_until is not None and self.unica_access_until >= datetime.utcnow()
+
+    @property
     def has_full_stats_access(self) -> bool:
         """
         Acceso a "toda la estadística": suscripción activa, o plan 'unica'
-        con al menos 1 crédito de reporte disponible todavía sin consumir.
+        con una ventana de reporte abierta o al menos 1 crédito sin consumir.
         """
-        return self.has_active_subscription or (self.plan == "unica" and self.report_credits > 0)
+        if self.has_active_subscription:
+            return True
+        return self.plan == "unica" and (self.has_open_report_window or self.report_credits > 0)
 
     @property
     def has_premium_access(self) -> bool:

@@ -6,11 +6,12 @@ de `search.py` y `statistics.py`, evitando duplicar lógica de orquestación.
 """
 import asyncio
 
-from app.core.exceptions import InsufficientDataError, UnsupportedPlatformError
+from app.core.config import get_settings
+from app.core.exceptions import InsufficientDataError, PlatformAPIError, UnsupportedPlatformError
 from app.models.domain import Platform
 from app.models.schemas import PlatformSummary, UnifiedChannel
 from app.services.analytics.benchmarks import compare_to_benchmark
-from app.services.analytics.normalizer import normalize_channels
+from app.services.analytics.normalizer import apply_recent_engagement, normalize_channels
 from app.services.collectors.base import BaseCollector
 from app.services.collectors.tiktok import TikTokCollector
 from app.services.collectors.youtube import DISCOVER_CATEGORY_LABELS, YouTubeCollector
@@ -22,6 +23,24 @@ _COLLECTORS: dict[Platform, type[BaseCollector]] = {
 
 SUPPORTED_PLATFORMS: list[Platform] = [Platform.YOUTUBE, Platform.TIKTOK]
 
+settings = get_settings()
+
+
+def platform_available(platform: Platform) -> bool:
+    """
+    True si la plataforma puede devolver datos: tiene credenciales, o el modo
+    mock está habilitado. Con el mock apagado (default en producción), una
+    plataforma sin credenciales NO está disponible -- así `platform=all` no
+    mezcla YouTube real con TikTok inventado.
+    """
+    if settings.USE_MOCK_DATA_IF_NO_CREDENTIALS:
+        return True
+    if platform == Platform.YOUTUBE:
+        return bool(settings.YOUTUBE_API_KEY)
+    if platform == Platform.TIKTOK:
+        return bool(settings.TIKTOK_CLIENT_KEY and settings.TIKTOK_CLIENT_SECRET)
+    return False
+
 # Métricas por las que se puede ordenar de mayor a menor en /channels/discover.
 DISCOVER_SORT_FIELDS: dict[str, str] = {
     "followers": "followers",
@@ -32,16 +51,24 @@ DISCOVER_SORT_FIELDS: dict[str, str] = {
 
 
 def resolve_platforms(requested: list[Platform]) -> list[Platform]:
-    """Expande Platform.ALL y valida que todo lo pedido esté soportado."""
-    if Platform.ALL in requested:
-        return list(SUPPORTED_PLATFORMS)
+    """
+    Expande Platform.ALL (solo a las plataformas disponibles, ver
+    `platform_available`) y valida que todo lo pedido esté soportado.
+    """
+    if Platform.ALL in requested or not requested:
+        available = [p for p in SUPPORTED_PLATFORMS if platform_available(p)]
+        if not available:
+            raise PlatformAPIError(
+                "all", "ninguna plataforma tiene credenciales configuradas (y el modo mock está desactivado)"
+            )
+        return available
 
     resolved = []
     for platform in requested:
         if platform not in SUPPORTED_PLATFORMS:
             raise UnsupportedPlatformError(platform.value if hasattr(platform, "value") else str(platform))
         resolved.append(platform)
-    return resolved or list(SUPPORTED_PLATFORMS)
+    return resolved
 
 
 async def _fetch_and_normalize(platform: Platform, query: str, limit: int) -> list[UnifiedChannel]:
@@ -73,7 +100,7 @@ def build_summary(channels_by_platform: dict[Platform, list[UnifiedChannel]]) ->
         if not channels:
             summaries.append(PlatformSummary(
                 platform=platform, channel_count=0, total_followers=0,
-                total_views=0, avg_normalized_er=0.0, benchmark=None,
+                total_views=0, avg_normalized_er=0.0, benchmark=None, mock_data=False,
             ))
             continue
 
@@ -88,8 +115,26 @@ def build_summary(channels_by_platform: dict[Platform, list[UnifiedChannel]]) ->
             total_views=total_views,
             avg_normalized_er=round(avg_ner, 4),
             benchmark=compare_to_benchmark(platform, avg_ner),
+            mock_data=any(c.is_mock for c in channels),
         ))
     return summaries
+
+
+async def enrich_engagement(platform: Platform, channels: list[UnifiedChannel]) -> list[UnifiedChannel]:
+    """
+    Completa el NER de canales de YouTube que llegaron sin muestreo de videos
+    (los de `discover*`, ver `YouTubeCollector.discover`). Se llama sobre el
+    resultado FINAL (ya ordenado y recortado), así la cuota extra es
+    proporcional a lo que se devuelve y no a los miles de candidatos del
+    trending. No-op para TikTok, canales simulados o ya muestreados.
+    """
+    if platform != Platform.YOUTUBE:
+        return channels
+    pending = [c.native_id for c in channels if not c.is_mock and c.engagement_videos_sampled is None]
+    if not pending:
+        return channels
+    by_id = await YouTubeCollector().recent_engagement_by_channel(pending)
+    return [apply_recent_engagement(c, by_id[c.native_id]) if c.native_id in by_id else c for c in channels]
 
 
 def flatten_channels(channels_by_platform: dict[Platform, list[UnifiedChannel]]) -> list[UnifiedChannel]:
@@ -118,8 +163,14 @@ async def _discover_and_normalize(
         seen.add(channel.universal_id)
         deduped.append(channel)
 
+    if sort_by == "normalized_er":
+        # Para ordenar por engagement hay que muestrearlo en TODOS los
+        # candidatos antes de recortar (más cuota: ~1 unidad por canal).
+        deduped = await enrich_engagement(platform, deduped)
+        deduped.sort(key=lambda c: c.normalized_er, reverse=True)
+        return deduped[:limit]
     deduped.sort(key=lambda c: getattr(c, sort_by), reverse=True)
-    return deduped[:limit]
+    return await enrich_engagement(platform, deduped[:limit])
 
 
 async def discover_unified_channels(
@@ -158,7 +209,7 @@ def category_label(platform: Platform, category_key: str) -> str:
 
 
 async def _discover_by_category_and_normalize(
-    platform: Platform, limit_per_category: int, sort_by: str
+    platform: Platform, limit_per_category: int, sort_by: str, with_engagement: bool = True,
 ) -> dict[str, list[UnifiedChannel]]:
     collector_cls = _COLLECTORS[platform]
     collector = collector_cls()
@@ -176,13 +227,25 @@ async def _discover_by_category_and_normalize(
             seen.add(channel.universal_id)
             deduped.append(channel)
 
+        if with_engagement and sort_by == "normalized_er":
+            deduped = await enrich_engagement(platform, deduped)
         deduped.sort(key=lambda c: getattr(c, sort_by), reverse=True)
         normalized_by_category[category_key] = deduped[:limit_per_category]
+
+    if with_engagement:
+        # Un solo muestreo para todos los canales finales de todas las
+        # categorías (un canal puede repetirse entre categorías).
+        all_final = [c for channels in normalized_by_category.values() for c in channels]
+        enriched = {c.universal_id: c for c in await enrich_engagement(platform, all_final)}
+        normalized_by_category = {
+            key: [enriched.get(c.universal_id, c) for c in channels]
+            for key, channels in normalized_by_category.items()
+        }
     return normalized_by_category
 
 
 async def discover_by_category_unified(
-    platforms: list[Platform], limit_per_category: int, sort_by: str = "followers"
+    platforms: list[Platform], limit_per_category: int, sort_by: str = "followers", with_engagement: bool = True,
 ) -> dict[Platform, dict[str, list[UnifiedChannel]]]:
     """
     Variante de `discover_unified_channels()` que NO mezcla las categorías:
@@ -198,7 +261,7 @@ async def discover_by_category_unified(
 
     resolved_platforms = resolve_platforms(platforms)
     tasks = [
-        _discover_by_category_and_normalize(platform, limit_per_category, sort_by)
+        _discover_by_category_and_normalize(platform, limit_per_category, sort_by, with_engagement)
         for platform in resolved_platforms
     ]
     results_per_platform = await asyncio.gather(*tasks)

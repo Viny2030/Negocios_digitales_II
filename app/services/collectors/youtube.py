@@ -13,6 +13,7 @@ diseño). Con 10.000 unidades/día se pueden resolver hasta 100 búsquedas
 y cientos de miles de lecturas de canal.
 """
 import asyncio
+import logging
 
 import httpx
 
@@ -22,6 +23,7 @@ from app.models.domain import Platform
 from app.services.collectors.base import BaseCollector, RawChannelData
 
 settings = get_settings()
+logger = logging.getLogger("channel_analytics.youtube")
 
 # IDs de categoría de YouTube (`videoCategoryId`) usados por `discover()` /
 # `discover_by_category()` para armar una foto de "todos los temas" sin que
@@ -98,13 +100,17 @@ class YouTubeCollector(BaseCollector):
             results: list[RawChannelData] = []
             if raw_ids:
                 results.extend(await self._fetch_channels_batch(client, raw_ids))
+            handle_items: list[RawChannelData] = []
             for handle in handles:
                 params = {"part": "snippet,statistics", "forHandle": handle.lstrip("@"), "key": self.api_key}
                 resp = await client.get(f"{self.base_url}/channels", params=params)
                 self._raise_for_status(resp)
                 items = resp.json().get("items", [])
                 if items:
-                    results.append(items[0])
+                    handle_items.append(items[0])
+            # Los resueltos por ID ya traen el engagement (ver _fetch_channels_batch).
+            await self._attach_recent_engagement(client, handle_items)
+            results.extend(handle_items)
             return results
 
     async def discover(self, limit: int, region_codes: list[str] | None = None) -> list[RawChannelData]:
@@ -144,7 +150,10 @@ class YouTubeCollector(BaseCollector):
                         all_ids.append(channel_id)
             if not all_ids:
                 return []
-            return await self._fetch_channels_batch(client, all_ids)
+            # Sin muestrear engagement acá: son cientos/miles de candidatos y
+            # solo una parte llega al resultado final -- el orquestador lo
+            # muestrea después solo para esos (ver `enrich_engagement`).
+            return await self._fetch_channels_batch(client, all_ids, with_engagement=False)
 
     async def discover_by_category(
         self, limit_per_category: int, region_codes: list[str] | None = None
@@ -167,7 +176,7 @@ class YouTubeCollector(BaseCollector):
             by_category_ids = await self._discover_trending_channel_ids_by_category(client, regions)
             results: dict[str, list[RawChannelData]] = {}
             for category_id, channel_ids in by_category_ids.items():
-                results[category_id] = await self._fetch_channels_batch(client, channel_ids)
+                results[category_id] = await self._fetch_channels_batch(client, channel_ids, with_engagement=False)
             return results
 
     async def _discover_trending_channel_ids_by_category(
@@ -252,7 +261,9 @@ class YouTubeCollector(BaseCollector):
         return [item["snippet"]["channelId"] if "channelId" in item.get("snippet", {})
                 else item["id"]["channelId"] for item in data.get("items", [])]
 
-    async def _fetch_channels_batch(self, client: httpx.AsyncClient, channel_ids: list[str]) -> list[RawChannelData]:
+    async def _fetch_channels_batch(
+        self, client: httpx.AsyncClient, channel_ids: list[str], with_engagement: bool = True,
+    ) -> list[RawChannelData]:
         results: list[RawChannelData] = []
         # channels.list acepta hasta 50 IDs separados por coma en una sola llamada.
         for i in range(0, len(channel_ids), 50):
@@ -266,7 +277,103 @@ class YouTubeCollector(BaseCollector):
             self._raise_for_status(resp)
             data = resp.json()
             results.extend(data.get("items", []))
+        if with_engagement:
+            await self._attach_recent_engagement(client, results)
         return results
+
+    async def recent_engagement_by_channel(self, channel_ids: list[str]) -> dict[str, dict]:
+        """
+        Versión pública (abre su propio cliente HTTP) de `_recent_engagement`:
+        la usa el orquestador para muestrear el engagement SOLO de los canales
+        que quedan en el resultado final de un descubrimiento, en vez de los
+        miles de candidatos del trending (ver `orchestrator.enrich_engagement`).
+        """
+        if not channel_ids or not await self.is_configured():
+            return {}
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            return await self._recent_engagement(client, channel_ids)
+
+    async def _attach_recent_engagement(self, client: httpx.AsyncClient, channels: list[RawChannelData]) -> None:
+        """Agrega `_recent_engagement` a cada canal crudo (ver `_recent_engagement`)."""
+        by_id = await self._recent_engagement(client, [c.get("id", "") for c in channels])
+        for channel in channels:
+            engagement = by_id.get(channel.get("id", ""))
+            if engagement is not None:
+                channel["_recent_engagement"] = engagement
+
+    async def _recent_engagement(self, client: httpx.AsyncClient, channel_ids: list[str]) -> dict[str, dict]:
+        """
+        Devuelve {channel_id: {videos, views, likes, comments}} sumando las
+        estadísticas de los últimos `YOUTUBE_ENGAGEMENT_RECENT_VIDEOS` videos
+        subidos de cada canal. Es la única forma de medir interacción con la
+        API pública: `channels.list` ya no devuelve `commentCount` y nunca
+        devolvió likes a nivel canal.
+
+        Camino barato en cuota: la playlist de subidas de un canal es su id con
+        prefijo "UU" en vez de "UC" (no hace falta pedir `contentDetails`), se
+        lee con `playlistItems.list` (1 unidad por canal) y las estadísticas de
+        todos los videos juntos van por `videos.list` en lotes de 50 (1 unidad
+        por lote).
+
+        Tolerante a fallos: si se agota la cuota o falla la API a mitad de
+        camino, los canales quedan SIN `_recent_engagement` (NER "no
+        disponible") pero el resto de sus métricas se guarda igual -- el
+        snapshot diario no se pierde por esto.
+        """
+        n = settings.YOUTUBE_ENGAGEMENT_RECENT_VIDEOS
+        channel_ids = [c for c in dict.fromkeys(channel_ids) if c.startswith("UC")]
+        if n <= 0 or not channel_ids:
+            return {}
+
+        semaphore = asyncio.Semaphore(settings.HTTP_MAX_CONCURRENT_REQUESTS)
+
+        async def recent_video_ids(channel_id: str) -> list[str]:
+            if not channel_id.startswith("UC"):
+                return []
+            params = {
+                "part": "contentDetails",
+                "playlistId": "UU" + channel_id[2:],
+                "maxResults": n,
+                "key": self.api_key,
+            }
+            async with semaphore:
+                resp = await client.get(f"{self.base_url}/playlistItems", params=params)
+            if resp.status_code == 404:
+                return []  # canal sin videos públicos
+            self._raise_for_status(resp)
+            return [
+                item["contentDetails"]["videoId"]
+                for item in resp.json().get("items", [])
+                if item.get("contentDetails", {}).get("videoId")
+            ]
+
+        try:
+            ids_per_channel = await asyncio.gather(*(recent_video_ids(c) for c in channel_ids))
+
+            all_ids = [video_id for ids in ids_per_channel for video_id in ids]
+            video_stats: dict[str, dict] = {}
+            for i in range(0, len(all_ids), 50):
+                params = {"part": "statistics", "id": ",".join(all_ids[i:i + 50]), "key": self.api_key}
+                resp = await client.get(f"{self.base_url}/videos", params=params)
+                self._raise_for_status(resp)
+                for item in resp.json().get("items", []):
+                    video_stats[item["id"]] = item.get("statistics", {})
+        except (PlatformAPIError, QuotaExceededError, httpx.HTTPError) as exc:
+            logger.warning("No se pudo muestrear el engagement de videos recientes: %s", exc)
+            return {}
+
+        result: dict[str, dict] = {}
+        for channel_id, ids in zip(channel_ids, ids_per_channel, strict=True):
+            sampled = [video_stats[v] for v in ids if v in video_stats]
+            if not sampled:
+                continue
+            result[channel_id] = {
+                "videos": len(sampled),
+                "views": sum(int(s.get("viewCount", 0) or 0) for s in sampled),
+                "likes": sum(int(s.get("likeCount", 0) or 0) for s in sampled),
+                "comments": sum(int(s.get("commentCount", 0) or 0) for s in sampled),
+            }
+        return result
 
     def _raise_for_status(self, resp: httpx.Response) -> None:
         if resp.status_code == 403:

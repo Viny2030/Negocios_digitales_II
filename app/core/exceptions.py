@@ -128,6 +128,16 @@ class UnauthorizedError(ChannelAnalyticsError):
         super().__init__("Token de administración inválido o ausente", status_code=status.HTTP_401_UNAUTHORIZED)
 
 
+class TooManyRequestsError(ChannelAnalyticsError):
+    """Demasiados intentos de login/registro desde la misma IP en poco tiempo."""
+
+    def __init__(self):
+        super().__init__(
+            "Demasiados intentos. Esperá un minuto y volvé a probar.",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+
 class UserAlreadyExistsError(ChannelAnalyticsError):
     """Ya existe una cuenta registrada con ese email."""
 

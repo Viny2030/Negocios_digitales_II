@@ -133,7 +133,9 @@ def test_admin_set_plan_unknown_email_returns_404(client):
     assert r.status_code == 404
 
 
-def test_unica_plan_consumes_one_report_credit_per_call(client, require_subscription):
+def test_unica_plan_un_credito_abre_una_ventana_de_reporte(client, require_subscription):
+    """Un crédito 'única' = un reporte: abre una ventana de consultas libres
+    (el dashboard hace varias llamadas por pantalla), no una sola llamada."""
     token = _register(client, "unica@example.com")["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -144,10 +146,47 @@ def test_unica_plan_consumes_one_report_credit_per_call(client, require_subscrip
 
     first = client.get("/api/v1/channels/discover?limit=10", headers=headers)
     assert first.status_code == 200
+    second = client.get("/api/v1/channels/discover?limit=5", headers=headers)
+    assert second.status_code == 200  # misma ventana: no gasta otro crédito
 
-    # El crédito ya se consumió en la llamada anterior: la siguiente debe rechazarse.
-    second = client.get("/api/v1/channels/discover?limit=10", headers=headers)
-    assert second.status_code == 402
+    me = client.get("/api/v1/auth/me", headers=headers).json()
+    assert me["report_credits"] == 0
+    assert me["unica_access_until"] is not None
+
+
+def test_unica_request_fallida_no_gasta_credito(client, require_subscription):
+    token = _register(client, "fallida@example.com")["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.post(
+        "/api/v1/auth/admin/set-plan",
+        json={"email": "fallida@example.com", "plan": "unica", "add_report_credits": 1},
+    )
+
+    # 422 (parámetro inválido) y 400 (platform=all donde no se admite): ninguna gasta el crédito.
+    assert client.get("/api/v1/analytics/distribution?platform=youtube", headers=headers).status_code == 422
+    assert client.get("/api/v1/analytics/distribution?query=x&platform=all", headers=headers).status_code == 400
+    assert client.get("/api/v1/auth/me", headers=headers).json()["report_credits"] == 1
+
+    assert client.get("/api/v1/channels/discover?limit=10", headers=headers).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=headers).json()["report_credits"] == 0
+
+
+def test_tracking_lectura_exige_plan_con_gating_activo(client, require_subscription):
+    """El listado y el historial de canales trackeados son justamente lo que se
+    cobra: con REQUIRE_SUBSCRIPTION=true no pueden quedar abiertos."""
+    assert client.get("/api/v1/tracking/channels").status_code == 401
+    assert client.get("/api/v1/tracking/channels/1/history").status_code == 401
+
+    token = _register(client, "lector@example.com")["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/v1/tracking/channels", headers=headers).status_code == 402
+
+    client.post("/api/v1/auth/admin/set-plan", json={"email": "lector@example.com", "plan": "mensual"})
+    assert client.get("/api/v1/tracking/channels", headers=headers).status_code == 200
+
+
+def test_tracking_lectura_abierta_sin_gating(client):
+    assert client.get("/api/v1/tracking/channels").status_code == 200
 
 
 def test_benchmarks_endpoint_stays_public_without_login(client, require_subscription):
@@ -169,3 +208,12 @@ def test_premium_endpoints_allowed_for_premium_plan_but_404_for_unknown_channel(
     r = client.get("/api/v1/premium/channels/999/projections", headers={"Authorization": f"Bearer {token}"})
     # Pasa el gate de plan (402 no debería aparecer); el canal no existe -> 404.
     assert r.status_code == 404
+
+
+def test_login_tiene_limite_de_intentos_por_minuto(client, monkeypatch):
+    import app.core.rate_limit as rl
+
+    monkeypatch.setattr(rl.settings, "AUTH_RATE_LIMIT_PER_MINUTE", 3)
+    body = {"email": "nadie@example.com", "password": "incorrecta"}
+    codes = [client.post("/api/v1/auth/login", json=body).status_code for _ in range(4)]
+    assert codes == [401, 401, 401, 429]

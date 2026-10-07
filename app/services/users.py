@@ -12,7 +12,7 @@ pago tendría que llamar para que todo el resto del sistema (gating de
 """
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -84,9 +84,39 @@ async def set_user_plan(
 
 
 async def consume_report_credit(session: AsyncSession, user: User) -> User:
-    """Descuenta 1 crédito de reporte ('única'). El llamador debe validar `report_credits > 0` antes."""
-    user.report_credits -= 1
-    session.add(user)
+    """
+    Descuenta 1 crédito de reporte ('única') de forma atómica (UPDATE ...
+    WHERE report_credits > 0): dos requests simultáneas nunca dejan el
+    saldo en negativo ni descuentan un crédito que no existe.
+    """
+    await session.execute(
+        update(User).where(User.id == user.id, User.report_credits > 0).values(report_credits=User.report_credits - 1)
+    )
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def open_report_window(session: AsyncSession, user: User) -> User:
+    """
+    Consume 1 crédito 'única' y abre una ventana de reporte de
+    `UNICA_REPORT_WINDOW_HOURS` horas. Atómico y a prueba de carreras: solo
+    descuenta si quedan créditos Y no hay ya una ventana abierta (si dos
+    consultas llegan juntas, la segunda no gasta otro crédito).
+    """
+    now = datetime.utcnow()
+    await session.execute(
+        update(User)
+        .where(
+            User.id == user.id,
+            User.report_credits > 0,
+            or_(User.unica_access_until.is_(None), User.unica_access_until < now),
+        )
+        .values(
+            report_credits=User.report_credits - 1,
+            unica_access_until=now + timedelta(hours=settings.UNICA_REPORT_WINDOW_HOURS),
+        )
+    )
     await session.commit()
     await session.refresh(user)
     return user

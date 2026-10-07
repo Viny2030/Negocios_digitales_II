@@ -136,8 +136,11 @@ async def inequality(
 ) -> InequalityResponse:
     start = time.perf_counter()
 
+    # `Platform.ALL` (y no YouTube+TikTok fijos): solo las plataformas con
+    # credenciales (o todas si el modo mock está habilitado) -- así nunca se
+    # compara YouTube real contra TikTok simulado.
     channels_by_platform = await fetch_unified_channels(
-        query=query, platforms=[Platform.YOUTUBE, Platform.TIKTOK], limit=limit,
+        query=query, platforms=[Platform.ALL], limit=limit,
     )
 
     results: list[InequalityStats] = []

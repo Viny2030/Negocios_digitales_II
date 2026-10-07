@@ -44,6 +44,43 @@ async def _migrate_add_channel_type_column(conn: AsyncConnection) -> None:
         ))
 
 
+_BIGINT_METRIC_COLUMNS = ("followers", "total_views", "total_posts", "raw_interactions")
+
+
+async def _migrate_metric_columns_to_bigint(conn: AsyncConnection) -> None:
+    """
+    Pasa a BIGINT las columnas de métricas de `channel_metric_snapshots` en
+    bases Postgres creadas con la versión anterior del modelo (INTEGER, que
+    desborda con las vistas de canales grandes). No-op en SQLite (sus
+    enteros ya son de 64 bits) y en bases nuevas (create_all ya las crea
+    como BIGINT). Idempotente: solo toca las columnas que siguen en INTEGER.
+    """
+    if conn.engine.dialect.name != "postgresql":
+        return
+    result = await conn.execute(text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'channel_metric_snapshots' AND data_type = 'integer'"
+    ))
+    for (column,) in result.fetchall():
+        if column in _BIGINT_METRIC_COLUMNS:
+            await conn.execute(text(f"ALTER TABLE channel_metric_snapshots ALTER COLUMN {column} TYPE BIGINT"))
+
+
+async def _add_column_if_missing(conn: AsyncConnection, table: str, column: str, ddl_type: str) -> None:
+    """
+    Agrega una columna nullable a una tabla ya existente (create_all nunca
+    altera tablas existentes). Funciona en SQLite y Postgres; no-op si la
+    columna ya está.
+    """
+    if conn.engine.dialect.name == "sqlite":
+        result = await conn.execute(text(f"PRAGMA table_info({table})"))
+        if column in {row[1] for row in result.fetchall()}:
+            return
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
+    else:
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl_type}"))
+
+
 async def _seed_default_channel_types() -> None:
     """
     Siembra el catálogo (`channel_types`) con las 15 categorías nativas de
@@ -86,6 +123,8 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _migrate_add_channel_type_column(conn)
+        await _migrate_metric_columns_to_bigint(conn)
+        await _add_column_if_missing(conn, "users", "unica_access_until", "TIMESTAMP")
     await _seed_default_channel_types()
 
 

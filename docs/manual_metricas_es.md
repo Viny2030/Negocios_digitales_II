@@ -14,7 +14,9 @@ alguien que use el dashboard o la API sin haber leído el código.
 | `total_views` | Vistas totales | Suma histórica de todas las reproducciones de todos los videos del canal (no es "vistas de esta semana", es el acumulado de toda la vida del canal). |
 | `total_posts` | Publicaciones | Cantidad de videos publicados por el canal. |
 | `raw_interactions` | Interacciones crudas | Suma de señales de interacción disponibles (ver más abajo) en la última muestra tomada. Es la base para calcular el NER (Engagement Rate normalizado). |
-| `likes`, `comments`, `shares`, `saves` | Desglose de interacciones | Componentes individuales de `raw_interactions`. **Importante**: la API pública de YouTube no expone "me gusta" agregados a nivel canal, así que en YouTube `likes`, `shares` y `saves` quedan en 0 y `raw_interactions` se aproxima solo con `comments`. En TikTok sí se suman las cuatro señales. |
+| `likes`, `comments`, `shares`, `saves` | Desglose de interacciones | Componentes individuales de `raw_interactions`. **YouTube**: la API pública no expone likes ni comentarios agregados a nivel canal, así que se suman los de los **últimos videos subidos** del canal (10 por default, `YOUTUBE_ENGAGEMENT_RECENT_VIDEOS`); `shares` y `saves` quedan en 0. En TikTok se suman las cuatro señales. |
+| `engagement_videos_sampled` | Videos muestreados | YouTube: sobre cuántos videos recientes se calculó el NER. Vacío (`null`) = no se pudo muestrear (sin cuota, canal sin videos públicos): el NER de ese canal **no está disponible**, no es "engagement cero". |
+| `is_mock` | Dato simulado | `true` si el canal es simulado (modo mock, sin credenciales de la plataforma). En producción el modo mock está apagado. |
 | `tier` | Tramo de audiencia | Clasificación automática por cantidad de seguidores: **nano** (&lt;10k), **micro** (10k–100k), **mid** (100k–500k), **macro** (500k–1M), **mega** (&gt;1M). |
 
 ## 2. Métricas de engagement
@@ -101,10 +103,12 @@ contextualizar si el ER promedio observado está **"below"** (por debajo),
 | Vida útil del contenido | Larga (meses a años, por SEO/búsqueda) | Muy corta a media (24h a 7 días) |
 | Riesgo de sesgo conocido | El clickbait infla vistas iniciales sin retención real | El algoritmo favorece viralidad efímera por sobre la base de seguidores |
 
-> **Nota sobre YouTube y el ER**: como la API pública no expone "me gusta"
-> agregados a nivel canal, el NER de YouTube en este sistema se aproxima
-> solo con comentarios — por eso suele aparecer "below" del benchmark. Es
-> una limitación de la métrica cruda documentada, no un error del sistema.
+> **Nota sobre YouTube y el ER**: la API pública no expone likes ni
+> comentarios agregados a nivel canal, así que el NER de YouTube se calcula
+> sobre los últimos videos subidos de cada canal: (likes + comentarios) /
+> vistas de esos mismos videos. Es comparable con el rango de industria
+> (1,5%–3,5%), que usa la misma fórmula. Cuesta ~1,2 unidades de cuota por
+> canal y se muestrea solo para los canales que se devuelven o se guardan.
 
 ## 8. Descubrimiento "todos los temas" (sin categoría)
 

@@ -116,3 +116,33 @@ async def test_set_user_plan_free_clears_subscription_but_keeps_credits(session)
     assert updated.plan == "free"
     assert updated.plan_active_until is None
     assert updated.report_credits == 3  # los créditos ya comprados no se pierden
+
+
+@pytest.mark.asyncio
+async def test_open_report_window_consume_un_credito_y_no_dos(session):
+    from app.services.users import open_report_window
+
+    user = await create_user(session, email="ventana@example.com", password="password123")
+    await set_user_plan(session, user, plan=Plan.UNICA, add_report_credits=2)
+
+    await open_report_window(session, user)
+    assert user.report_credits == 1
+    assert user.has_open_report_window is True
+
+    # Con la ventana abierta, otra llamada no descuenta nada.
+    await open_report_window(session, user)
+    assert user.report_credits == 1
+
+    # Ventana vencida: el próximo reporte sí gasta el crédito que queda.
+    user.unica_access_until = datetime.utcnow() - timedelta(minutes=1)
+    await session.commit()
+    await open_report_window(session, user)
+    assert user.report_credits == 0
+    assert user.has_full_stats_access is True  # la ventana nueva sigue abierta
+
+
+@pytest.mark.asyncio
+async def test_consume_report_credit_nunca_queda_negativo(session):
+    user = await create_user(session, email="cero@example.com", password="password123")
+    await consume_report_credit(session, user)
+    assert user.report_credits == 0

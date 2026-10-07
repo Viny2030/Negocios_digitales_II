@@ -3,15 +3,19 @@ Endpoints de seguimiento diario: alta/baja de canales trackeados,
 historial de snapshots, y disparo manual del worker diario (sin esperar
 a que corra el scheduler a las 3am UTC).
 
-Todos requieren el header `X-Admin-Token` únicamente si `ADMIN_TOKEN` está
-configurado en el entorno — por defecto (uso local) quedan abiertos.
+Las rutas de ESCRITURA requieren el header `X-Admin-Token` únicamente si
+`ADMIN_TOKEN` está configurado en el entorno — por defecto (uso local) quedan
+abiertas. Las de LECTURA (listado e historial de snapshots) pasan por el mismo
+gating por plan que `/analytics/*` (`require_full_access`): con
+`REQUIRE_SUBSCRIPTION=true` exigen sesión + plan, porque el histórico es
+justamente lo que se cobra.
 """
 import time
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import verify_admin_token
+from app.api.deps import require_full_access, verify_admin_token
 from app.core.config import get_settings
 from app.core.exceptions import ChannelNotFoundError, TrackedChannelNotFoundError
 from app.db.session import get_session
@@ -194,6 +198,7 @@ async def discover_and_track(
 
 @router.get(
     "/channels", response_model=TrackedChannelListResponse, summary="Listar canales trackeados",
+    dependencies=[Depends(require_full_access)],
 )
 async def list_tracked_channels(
     include_inactive: bool = Query(False), session: AsyncSession = Depends(get_session),
@@ -225,6 +230,7 @@ async def remove_tracked_channel(tracked_id: int, session: AsyncSession = Depend
 @router.get(
     "/channels/{tracked_id}/history", response_model=ChannelHistoryResponse,
     summary="Historial de snapshots diarios de un canal trackeado",
+    dependencies=[Depends(require_full_access)],
 )
 async def channel_history(
     tracked_id: int, days: int = Query(30, ge=1, le=365), session: AsyncSession = Depends(get_session),

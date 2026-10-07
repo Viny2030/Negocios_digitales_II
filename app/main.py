@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.deps import consume_report_credit_on_success
 from app.api.v1.router import api_router
 from app.core.config import get_settings, production_safety_warnings
 from app.core.exceptions import register_exception_handlers
@@ -40,15 +41,27 @@ DOCS_DIR = BASE_DIR.parent / "docs"
 async def lifespan(app: FastAPI):
     # Startup: crea las tablas (dim_channels / fact_channel_metrics_daily)
     # si todavía no existen, y arranca el scheduler del worker diario.
+    # Chequeo de seguridad ANTES de tocar la base o arrancar el scheduler:
+    #   - en producción (APP_ENV=production, automático dentro de Railway) la
+    #     app NO arranca con un default inseguro -- un deploy público con
+    #     ADMIN_TOKEN vacío deja que cualquiera se asigne el plan premium, y
+    #     con el JWT_SECRET_KEY del repo cualquiera forja sesiones;
+    #   - en desarrollo solo avisa en el log (no rompe el uso local sin .env).
+    problems = production_safety_warnings(settings)
+    if problems and settings.is_production:
+        raise RuntimeError(
+            "Configuración insegura para producción (APP_ENV=production), la app no arranca: "
+            + " | ".join(problems)
+        )
+    for warning in problems:
+        logger.warning("CONFIG INSEGURA PARA UN DEPLOY PÚBLICO: %s", warning)
+    logger.info(
+        "Entorno: %s · modo mock %s", settings.APP_ENV,
+        "habilitado" if settings.USE_MOCK_DATA_IF_NO_CREDENTIALS else "deshabilitado",
+    )
+
     await init_db()
     start_scheduler()
-    # Chequeo de seguridad "amistoso": no bloquea el arranque (rompería el
-    # uso local sin .env), pero deja bien visible en los logs si quedó
-    # algún default inseguro de desarrollo cargado — ver
-    # `core/config.py::production_safety_warnings` y la sección "Deploy en
-    # Railway" del README.
-    for warning in production_safety_warnings(settings):
-        logger.warning("CONFIG INSEGURA PARA UN DEPLOY PÚBLICO: %s", warning)
     yield
     # Shutdown: apaga el scheduler prolijamente.
     shutdown_scheduler()
@@ -82,6 +95,9 @@ app.add_middleware(
 )
 
 register_exception_handlers(app)
+# Descuenta el crédito del plan 'unica' solo cuando la respuesta sale bien
+# (ver `app/api/deps.py::require_full_access`).
+app.middleware("http")(consume_report_credit_on_success)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
 # El dashboard es un único HTML+JS+CSS estático que consume la propia API
@@ -127,6 +143,7 @@ async def health_check() -> dict:
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "platforms_supported": ["youtube", "tiktok"],
+        "environment": settings.APP_ENV,
         "mock_mode_available": settings.USE_MOCK_DATA_IF_NO_CREDENTIALS,
         "daily_scheduler_enabled": settings.ENABLE_SCHEDULER,
         "dashboard": "/dashboard",

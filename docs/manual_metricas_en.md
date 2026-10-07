@@ -15,7 +15,9 @@ read the source code.
 | `total_views` | Total views | Historical sum of all playbacks across all of the channel's videos (this is not "views this week" — it's the channel's lifetime cumulative total). |
 | `total_posts` | Posts | Number of videos published by the channel. |
 | `raw_interactions` | Raw interactions | Sum of the available interaction signals (see below) from the latest snapshot taken. This is the basis for computing NER (normalized Engagement Rate). |
-| `likes`, `comments`, `shares`, `saves` | Interaction breakdown | Individual components of `raw_interactions`. **Important**: YouTube's public API does not expose aggregated "likes" at the channel level, so on YouTube `likes`, `shares`, and `saves` stay at 0 and `raw_interactions` is approximated using only `comments`. On TikTok all four signals are summed. |
+| `likes`, `comments`, `shares`, `saves` | Interaction breakdown | Individual components of `raw_interactions`. **YouTube**: the public API exposes no channel-level likes or comments, so they are summed over the channel's **most recent uploads** (10 by default, `YOUTUBE_ENGAGEMENT_RECENT_VIDEOS`); `shares` and `saves` stay at 0. On TikTok all four signals are summed. |
+| `engagement_videos_sampled` | Sampled videos | YouTube: how many recent videos the NER was computed on. Empty (`null`) = could not be sampled (no quota, no public videos): that channel's NER is **unavailable**, not "zero engagement". |
+| `is_mock` | Simulated data | `true` if the channel is simulated (mock mode, no platform credentials). Mock mode is off in production. |
 | `tier` | Audience tier | Automatic classification by follower count: **nano** (<10k), **micro** (10k–100k), **mid** (100k–500k), **macro** (500k–1M), **mega** (>1M). |
 
 ## 2. Engagement metrics
@@ -102,11 +104,11 @@ whether the observed average ER is **"below"**, **"within"**, or
 | Content lifespan | Long (months to years, driven by SEO/search) | Very short to medium (24h to 7 days) |
 | Known bias risk | Clickbait inflates initial views without real retention | The algorithm rewards ephemeral virality over the follower base |
 
-> **Note on YouTube and ER**: since the public API does not expose
-> aggregated "likes" at the channel level, this system's YouTube NER is
-> approximated using only comments — which is why it commonly shows up as
-> "below" the benchmark. This is a documented limitation of the raw
-> metric, not a system error.
+> **Note on YouTube and ER**: the public API exposes no channel-level likes
+> or comments, so YouTube NER is computed over each channel's most recent
+> uploads: (likes + comments) / views of those same videos. That matches the
+> industry range formula (1.5%–3.5%). It costs ~1.2 quota units per channel
+> and is only sampled for channels that are returned or stored.
 
 ## 8. "All topics" discovery (no category)
 

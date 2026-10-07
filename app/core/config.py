@@ -5,9 +5,11 @@ Usa Pydantic v2 Settings para cargar variables de entorno (.env) con
 validación de tipos. Solo se incluyen las credenciales necesarias para
 las plataformas activas en esta fase: YouTube y TikTok.
 """
+import os
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +30,18 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    # --- Entorno ---
+    # "development" (local) o "production" (deploy público). Si no se define,
+    # se detecta solo: dentro de Railway (variable RAILWAY_ENVIRONMENT_NAME,
+    # que Railway inyecta siempre) es "production"; en cualquier otro lado,
+    # "development". En producción:
+    #   - el modo mock queda APAGADO (salvo que se fuerce
+    #     USE_MOCK_DATA_IF_NO_CREDENTIALS=true a propósito): una plataforma sin
+    #     credenciales se omite en vez de devolver datos inventados;
+    #   - la app NO arranca si falta ADMIN_TOKEN o si JWT_SECRET_KEY sigue en
+    #     el default de desarrollo (ver `production_safety_warnings`).
+    APP_ENV: Literal["development", "production"] | None = None
 
     # --- Metadatos de la app ---
     APP_NAME: str = "Channel Analytics Core"
@@ -59,6 +73,13 @@ class Settings(BaseSettings):
     YOUTUBE_API_BASE_URL: str = "https://www.googleapis.com/youtube/v3"
     # Cuota diaria estándar del proyecto (10.000 unidades/día)
     YOUTUBE_DAILY_QUOTA_UNITS: int = 10_000
+    # Engagement de YouTube: la API ya NO devuelve `commentCount` a nivel canal
+    # (ni likes agregados), así que el NER se calcula sobre los últimos N videos
+    # subidos de cada canal: (likes + comentarios) / vistas de esos videos.
+    # Costo de cuota: 1 unidad por canal (playlistItems) + 1 unidad cada 50
+    # videos (videos.list en lote) -- con N=10, unas 1,2 unidades por canal.
+    # 0 = desactivado (el NER de YouTube queda como "no disponible").
+    YOUTUBE_ENGAGEMENT_RECENT_VIDEOS: int = Field(default=10, ge=0, le=50)
 
     # --- TikTok (Research/Display API oficial) ---
     TIKTOK_CLIENT_KEY: str | None = None
@@ -176,6 +197,29 @@ class Settings(BaseSettings):
     # suscripciones. Poner en `True` (en `.env`) para exigir de verdad un
     # plan activo en esos endpoints (p. ej. para una demo/entrega formal).
     REQUIRE_SUBSCRIPTION: bool = False
+    # Plan 'unica': cada crédito abre una "ventana de reporte" de estas horas
+    # durante la cual todas las consultas de estadística son libres (un
+    # reporte = una sesión de análisis, no una sola llamada a la API). El
+    # crédito se descuenta solo cuando la primera consulta de la ventana
+    # termina bien -- una request que falla (400/422/502...) no lo gasta.
+    UNICA_REPORT_WINDOW_HOURS: int = Field(default=24, ge=1)
+
+    # Límite de intentos para /auth/login y /auth/register, por IP y por
+    # minuto (freno básico a fuerza bruta y altas masivas). 0 = sin límite.
+    AUTH_RATE_LIMIT_PER_MINUTE: int = Field(default=10, ge=0)
+
+    @model_validator(mode="after")
+    def _resolve_environment(self):
+        if self.APP_ENV is None:
+            on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT_NAME") or os.environ.get("RAILWAY_ENVIRONMENT"))
+            self.APP_ENV = "production" if on_railway else "development"
+        if self.APP_ENV == "production" and "USE_MOCK_DATA_IF_NO_CREDENTIALS" not in self.model_fields_set:
+            self.USE_MOCK_DATA_IF_NO_CREDENTIALS = False
+        return self
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV == "production"
 
 
 @lru_cache

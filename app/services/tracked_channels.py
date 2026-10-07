@@ -16,7 +16,7 @@ from app.core.exceptions import ChannelTypeInUseError, ChannelTypeNotFoundError,
 from app.db.models import ChannelMetricSnapshot, ChannelType, TrackedChannel
 from app.models.domain import Platform
 from app.models.schemas import UnifiedChannel
-from app.services.orchestrator import category_label, discover_by_category_unified
+from app.services.orchestrator import category_label, discover_by_category_unified, enrich_engagement
 
 
 def slugify(name: str) -> str:
@@ -325,8 +325,11 @@ async def discover_and_track_channels(
     con acceso real a las APIs pueda hacer crecer el dataset solo, sin
     tener que disparar el alta a mano cada vez.
     """
+    # Sin muestrear engagement acá (serían hasta `total_limit` canales POR
+    # categoría): se muestrea más abajo solo para los que efectivamente se
+    # eligen para trackear.
     by_platform = await discover_by_category_unified(
-        platforms=[platform], limit_per_category=total_limit, sort_by=sort_by,
+        platforms=[platform], limit_per_category=total_limit, sort_by=sort_by, with_engagement=False,
     )
 
     # Aplanamos a una lista de "carriles" (uno por categoría/tema de cada
@@ -345,43 +348,60 @@ async def discover_and_track_channels(
     errors: list[str] = []
     total_tracked = 0
 
+    # 1) Elegir en ROUND-ROBIN qué canales se trackean (sin tocar la base).
+    #    Un mismo canal puede aparecer en más de una categoría: cuenta una vez.
+    selected: list[tuple[dict, UnifiedChannel]] = []
+    seen_ids: set[str] = set()
     made_progress = True
-    while total_tracked < total_limit and made_progress:
+    while len(selected) < total_limit and made_progress:
         made_progress = False
         for lane in lanes:
-            if total_tracked >= total_limit:
+            if len(selected) >= total_limit:
                 break
             if lane["next_index"] >= len(lane["channels"]):
                 continue  # este carril ya se quedó sin canales, se saltea
-
             channel = lane["channels"][lane["next_index"]]
             lane["next_index"] += 1
             made_progress = True
+            if channel.universal_id in seen_ids:
+                continue
+            seen_ids.add(channel.universal_id)
+            selected.append((lane, channel))
 
-            try:
-                cache_key = (lane["platform"], lane["category"])
-                channel_type_id = channel_type_cache.get(cache_key)
-                if channel_type_id is None:
-                    channel_type = await get_or_create_channel_type_by_name(session, lane["label"])
-                    channel_type_id = channel_type.id
-                    channel_type_cache[cache_key] = channel_type_id
+    # 2) Muestrear el engagement (videos recientes) solo de los elegidos.
+    enriched_by_id: dict[str, UnifiedChannel] = {}
+    for p in by_platform:
+        chosen = [c for lane, c in selected if lane["platform"] == p]
+        for c in await enrich_engagement(p, chosen):
+            enriched_by_id[c.universal_id] = c
 
-                tracked = await create_tracked(
-                    session, platform=lane["platform"], native_id=channel.native_id, handle=channel.handle,
-                    label=None, name=channel.name, url=channel.url, channel_type_id=channel_type_id,
-                )
-                await upsert_snapshot_from_channel(session, tracked.id, channel)
-                total_tracked += 1
-                lane["tracked"] += 1
-            except Exception as e:
-                # Un canal individual que falla (p. ej. una violación de
-                # constraint) puede dejar la sesión en estado "aborted" para
-                # SQLAlchemy -- hay que hacer rollback antes de seguir con el
-                # próximo canal, si no todos los que vengan después fallan en
-                # cascada con el mismo error.
-                await session.rollback()
-                platform_value = lane["platform"].value if hasattr(lane["platform"], "value") else lane["platform"]
-                errors.append(f"{platform_value}:{channel.native_id} — {e}")
+    # 3) Guardar: alta (o reactivación) + primer snapshot de cada uno.
+    for lane, picked in selected:
+        channel = enriched_by_id.get(picked.universal_id, picked)
+        try:
+            cache_key = (lane["platform"], lane["category"])
+            channel_type_id = channel_type_cache.get(cache_key)
+            if channel_type_id is None:
+                channel_type = await get_or_create_channel_type_by_name(session, lane["label"])
+                channel_type_id = channel_type.id
+                channel_type_cache[cache_key] = channel_type_id
+
+            tracked = await create_tracked(
+                session, platform=lane["platform"], native_id=channel.native_id, handle=channel.handle,
+                label=None, name=channel.name, url=channel.url, channel_type_id=channel_type_id,
+            )
+            await upsert_snapshot_from_channel(session, tracked.id, channel)
+            total_tracked += 1
+            lane["tracked"] += 1
+        except Exception as e:
+            # Un canal individual que falla (p. ej. una violación de
+            # constraint) puede dejar la sesión en estado "aborted" para
+            # SQLAlchemy -- hay que hacer rollback antes de seguir con el
+            # próximo canal, si no todos los que vengan después fallan en
+            # cascada con el mismo error.
+            await session.rollback()
+            platform_value = lane["platform"].value if hasattr(lane["platform"], "value") else lane["platform"]
+            errors.append(f"{platform_value}:{channel.native_id} — {e}")
 
     return DiscoverAndTrackResult(
         total_limit=total_limit,

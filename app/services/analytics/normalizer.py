@@ -77,11 +77,33 @@ def normalize_youtube_channel(raw: RawChannelData) -> UnifiedChannel:
     subscribers = int(stats.get("subscriberCount", 0) or 0)
     views = int(stats.get("viewCount", 0) or 0)
     videos = int(stats.get("videoCount", 0) or 0)
-    comments = int(stats.get("commentCount", 0) or 0)
-    # La API pública de YouTube no expone "likes" agregados a nivel canal;
-    # se aproxima con comentarios (única señal de interacción disponible
-    # sin iterar video por video, lo que dispararía el consumo de cuota).
-    interactions = comments
+
+    # La API de YouTube no expone likes ni comentarios agregados a nivel canal
+    # (`statistics.commentCount` está deprecado y ya no viene): el engagement
+    # real se muestrea sobre los últimos videos subidos (ver
+    # `YouTubeCollector._attach_recent_engagement`) y el NER se calcula contra
+    # las vistas de ESOS videos, no contra las vistas históricas del canal.
+    recent = raw.get("_recent_engagement")
+    if recent is not None:
+        likes = int(recent.get("likes", 0) or 0)
+        comments = int(recent.get("comments", 0) or 0)
+        interactions = likes + comments
+        ner = normalized_engagement_rate(interactions, float(recent.get("views", 0) or 0))
+        sampled = int(recent.get("videos", 0) or 0)
+    elif raw.get("_mock") or "commentCount" in stats:
+        # Modo mock (o una respuesta vieja que todavía trae commentCount).
+        likes = 0
+        comments = int(stats.get("commentCount", 0) or 0)
+        interactions = comments
+        ner = normalized_engagement_rate(interactions, views)
+        sampled = None
+    else:
+        # Sin muestreo de videos (desactivado, sin cuota o error puntual): el
+        # NER queda "no disponible" (0.0 + engagement_videos_sampled=None), en
+        # vez de un 0 que se confunda con engagement nulo.
+        likes = comments = interactions = 0
+        ner = 0.0
+        sampled = None
 
     native_id = raw.get("id", "")
     channel = UnifiedChannel(
@@ -96,14 +118,35 @@ def normalize_youtube_channel(raw: RawChannelData) -> UnifiedChannel:
         total_views=views,
         total_posts=videos,
         raw_interactions=interactions,
-        likes=0,
+        likes=likes,
         comments=comments,
         shares=0,
         saves=0,
-        normalized_er=normalized_engagement_rate(interactions, views),
+        normalized_er=ner,
+        engagement_videos_sampled=sampled,
         tier=ContentTier.classify(subscribers),
+        is_mock=bool(raw.get("_mock")),
     )
     return channel
+
+
+def apply_recent_engagement(channel: UnifiedChannel, recent: dict) -> UnifiedChannel:
+    """
+    Devuelve una copia de `channel` (YouTube) con el engagement muestreado de
+    sus videos recientes ({videos, views, likes, comments}, ver
+    `YouTubeCollector._recent_engagement`). La usa el orquestador para
+    completar el NER solo de los canales que quedan en un resultado final.
+    """
+    likes = int(recent.get("likes", 0) or 0)
+    comments = int(recent.get("comments", 0) or 0)
+    interactions = likes + comments
+    return channel.model_copy(update={
+        "likes": likes,
+        "comments": comments,
+        "raw_interactions": interactions,
+        "normalized_er": normalized_engagement_rate(interactions, float(recent.get("views", 0) or 0)),
+        "engagement_videos_sampled": int(recent.get("videos", 0) or 0),
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -140,6 +183,7 @@ def normalize_tiktok_channel(raw: RawChannelData) -> UnifiedChannel:
         saves=saves,
         normalized_er=normalized_engagement_rate(interactions, views),
         tier=ContentTier.classify(followers),
+        is_mock=bool(raw.get("_mock")),
     )
     return channel
 

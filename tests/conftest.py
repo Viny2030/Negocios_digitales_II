@@ -14,6 +14,7 @@ import pytest
 
 import app.services.collectors.tiktok as tiktok_module
 import app.services.collectors.youtube as youtube_module
+from app.core.rate_limit import auth_limiter
 
 
 @pytest.fixture(autouse=True)
@@ -22,3 +23,12 @@ def force_mock_mode(monkeypatch):
     monkeypatch.setattr(youtube_module.settings, "YOUTUBE_API_KEY", None)
     monkeypatch.setattr(tiktok_module.settings, "TIKTOK_CLIENT_KEY", None)
     monkeypatch.setattr(tiktok_module.settings, "TIKTOK_CLIENT_SECRET", None)
+
+
+@pytest.fixture(autouse=True)
+def reset_auth_rate_limit():
+    """El límite de intentos de /auth/* vive en memoria del proceso: se limpia
+    entre tests para que los registros/logins de un test no cuenten en otro."""
+    auth_limiter.reset()
+    yield
+    auth_limiter.reset()
