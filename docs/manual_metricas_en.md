@@ -89,6 +89,40 @@ follower/view purchasing, **not definitive proof** (it can also happen
 with legitimate very-passive niche channels, or because of YouTube's
 limitation of not exposing aggregated likes).
 
+A channel whose engagement could not be measured is not evaluated by this
+rule: an "unavailable" NER is not zero engagement.
+
+### Unusual audience signals
+
+Endpoints: `GET /analytics/audience-integrity` (channels from a search) and
+`GET /tracking/channels/{id}/audience-integrity` (one tracked channel, with its
+history). They combine the rule above with other public signals and return a
+score from 0 to 100 that measures **how much a channel is worth reviewing**, not
+a probability of fraud.
+
+| Signal (`code`) | What it looks at | Points |
+|---|---|---|
+| `few_views_for_followers` | Fewer than 3 lifetime views per follower (fewer than 1 weighs more) | 20 or 35 |
+| `low_engagement` | Engagement below 25% of the platform's floor (below 10% weighs more) | 15 or 30 |
+| `few_recent_views` | A typical recent video reaches under 1.5% of followers (under 0.5% weighs more). Does not apply with 50 or more lifetime views per follower | 12 or 25 |
+| `views_without_likes` | Under 0.1% likes on recent views | 20 |
+| `likes_without_comments` | Under 0.2% comments relative to likes | 15 |
+| `isolated_view_spike` | One video with 20 times the typical views of the rest | 10 |
+| `cohort_outlier` | The rule above, within its search | 15 |
+| `follower_jump` | A jump of 5% or more, far above the channel's usual pace (weighs more if views do not follow) | 30 or 40 |
+| `follower_drop` | A drop of 5% or more between two snapshots | 25 |
+
+Result (`level`): `sin_senales` (no signals, under 25), `leve` (mild, 25 to 49),
+`revisar` (review, 50 to 74), `alta` (many signals, 75 or more) and
+`datos_insuficientes` (insufficient data, fewer than 2 signals computed, or
+under 1,000 followers). **A
+single signal never goes beyond `leve`.** The thresholds are starting criteria:
+they have not yet been validated against real channels with proven fraud.
+
+**What it cannot see:** unique users, watch time, traffic sources or individual
+accounts. Only the channel owner has that data, so this does not identify bots
+or prove audience purchasing.
+
 ## 7. Industry benchmarks (per-platform reference)
 
 Endpoint: `GET /analytics/benchmarks`. These are industry-published

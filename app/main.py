@@ -136,6 +136,16 @@ async def manual_en() -> FileResponse:
     return FileResponse(DOCS_DIR / "manual_metricas_en.md", media_type="text/markdown; charset=utf-8")
 
 
+@app.get("/guia", tags=["docs"], summary="Guía de uso con grafos (Español)", include_in_schema=False)
+async def guia_es() -> FileResponse:
+    return FileResponse(STATIC_DIR / "guia.html", media_type="text/html")
+
+
+@app.get("/guia/en", tags=["docs"], summary="User guide with graphs (English)", include_in_schema=False)
+async def guia_en() -> FileResponse:
+    return FileResponse(STATIC_DIR / "guia_en.html", media_type="text/html")
+
+
 @app.get("/", tags=["health"], summary="Health check")
 async def health_check() -> dict:
     return {
