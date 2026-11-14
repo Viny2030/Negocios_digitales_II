@@ -29,6 +29,10 @@ from app.db.session import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("channel_analytics.startup")
+# httpx registra cada URL completa en INFO, y YouTube Data API lleva la clave en el query
+# string (?key=...): sin esto, YOUTUBE_API_KEY queda escrita en los logs locales y de Railway.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 settings = get_settings()
 
