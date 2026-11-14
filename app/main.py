@@ -150,6 +150,16 @@ async def guia_en() -> FileResponse:
     return FileResponse(STATIC_DIR / "guia_en.html", media_type="text/html")
 
 
+@app.get("/guia/diagramas", tags=["docs"], summary="Grafos técnicos del sistema (Español)", include_in_schema=False)
+async def guia_diagramas_es() -> FileResponse:
+    return FileResponse(STATIC_DIR / "diagramas.html", media_type="text/html")
+
+
+@app.get("/guia/en/diagramas", tags=["docs"], summary="System technical graphs (English)", include_in_schema=False)
+async def guia_diagramas_en() -> FileResponse:
+    return FileResponse(STATIC_DIR / "diagramas_en.html", media_type="text/html")
+
+
 @app.get("/", tags=["health"], summary="Health check")
 async def health_check() -> dict:
     return {

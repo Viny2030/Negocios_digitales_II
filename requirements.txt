@@ -1,4 +1,5 @@
-fastapi==0.115.0
+fastapi==0.163.0
+starlette==1.10.0  # explícito para auditar: fastapi 0.115.0 fijaba starlette <0.39 (FileResponse/multipart vulnerables)
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 pydantic-settings==2.5.2
@@ -6,7 +7,7 @@ httpx==0.27.2
 pandas==2.2.3
 numpy==1.26.4
 scipy==1.13.1
-python-dotenv==1.0.1
+python-dotenv==1.2.4
 
 # Persistencia + worker diario (seguimiento de canales)
 sqlalchemy==2.0.35
@@ -17,4 +18,4 @@ apscheduler==3.10.4
 # Autenticación y suscripciones (planes free/unica/mensual/premium) —
 # armada desde cero, sin proveedor externo de identidad
 bcrypt==4.2.0
-pyjwt==2.9.0
+pyjwt==2.15.1  # >=2.15.0: corrige CVE-2026-101918 (RecursionError -> HTTP 500 sin autenticar) y la serie 2026 de avisos
