@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_full_access, verify_admin_token
 from app.core.config import get_settings
-from app.core.exceptions import ChannelNotFoundError, TrackedChannelNotFoundError
+from app.core.exceptions import ChannelNotFoundError, InsufficientDataError, TrackedChannelNotFoundError
 from app.db.session import get_session
 from app.models.domain import Platform
 from app.models.schemas import (
@@ -28,10 +28,12 @@ from app.models.schemas import (
     ChannelTypeOut,
     DailyJobResultOut,
     ExecutionMeta,
+    TrackedAudienceResponse,
     TrackedChannelCreate,
     TrackedChannelListResponse,
     TrackedChannelOut,
 )
+from app.services.analytics.audience_integrity import DISCLAIMER, assess_channel, channel_from_snapshot
 from app.services.analytics.normalizer import normalize_channels
 from app.services.collectors.tiktok import TikTokCollector
 from app.services.collectors.youtube import YouTubeCollector
@@ -246,6 +248,34 @@ async def channel_history(
         meta=ExecutionMeta(response_time_ms=round(elapsed_ms, 2)),
         channel=await _tracked_out(session, tracked),
         snapshots=[_snapshot_out(s) for s in snapshots],
+    )
+
+
+@router.get(
+    "/channels/{tracked_id}/audience-integrity", response_model=TrackedAudienceResponse,
+    summary="Señales de audiencia inusual de un canal trackeado, a partir de su historial",
+    dependencies=[Depends(require_full_access)],
+)
+async def tracked_audience_integrity(
+    tracked_id: int, session: AsyncSession = Depends(get_session),
+) -> TrackedAudienceResponse:
+    start = time.perf_counter()
+    tracked = await get_tracked(session, tracked_id)
+    if tracked is None:
+        raise TrackedChannelNotFoundError(tracked_id)
+
+    snapshots = await snapshot_history(session, tracked_id, days=3650)
+    if not snapshots:
+        raise InsufficientDataError(f"El canal trackeado {tracked_id} todavía no tiene ningún snapshot.")
+
+    assessment = assess_channel(channel_from_snapshot(tracked, snapshots[-1]), snapshots=snapshots)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    return TrackedAudienceResponse(
+        meta=ExecutionMeta(response_time_ms=round(elapsed_ms, 2)),
+        tracked_channel_id=tracked_id,
+        assessment=assessment,
+        snapshots_used=len(snapshots),
+        disclaimer=DISCLAIMER,
     )
 
 

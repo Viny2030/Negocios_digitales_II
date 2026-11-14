@@ -81,6 +81,7 @@ def _make_channel(uid: str, followers: int, ner: float) -> UnifiedChannel:
         total_posts=100,
         raw_interactions=10,
         normalized_er=ner,
+        engagement_videos_sampled=10,
         tier=ContentTier.classify(followers),
     )
 

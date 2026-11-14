@@ -28,3 +28,7 @@ env/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Material de trabajo local
+repomix-*.xml
+Claude outputs/

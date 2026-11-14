@@ -29,6 +29,10 @@ from app.db.session import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("channel_analytics.startup")
+# httpx registra cada URL completa en INFO, y YouTube Data API lleva la clave en el query
+# string (?key=...): sin esto, YOUTUBE_API_KEY queda escrita en los logs locales y de Railway.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 settings = get_settings()
 
@@ -134,6 +138,16 @@ async def manual_es() -> FileResponse:
 async def manual_en() -> FileResponse:
     """Sirve `docs/manual_metricas_en.md` — ver `manual_es()` arriba."""
     return FileResponse(DOCS_DIR / "manual_metricas_en.md", media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/guia", tags=["docs"], summary="Guía de uso con grafos (Español)", include_in_schema=False)
+async def guia_es() -> FileResponse:
+    return FileResponse(STATIC_DIR / "guia.html", media_type="text/html")
+
+
+@app.get("/guia/en", tags=["docs"], summary="User guide with graphs (English)", include_in_schema=False)
+async def guia_en() -> FileResponse:
+    return FileResponse(STATIC_DIR / "guia_en.html", media_type="text/html")
 
 
 @app.get("/", tags=["health"], summary="Health check")
