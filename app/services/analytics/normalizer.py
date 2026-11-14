@@ -84,12 +84,14 @@ def normalize_youtube_channel(raw: RawChannelData) -> UnifiedChannel:
     # `YouTubeCollector._attach_recent_engagement`) y el NER se calcula contra
     # las vistas de ESOS videos, no contra las vistas históricas del canal.
     recent = raw.get("_recent_engagement")
+    recent_video_views = None
     if recent is not None:
         likes = int(recent.get("likes", 0) or 0)
         comments = int(recent.get("comments", 0) or 0)
         interactions = likes + comments
         ner = normalized_engagement_rate(interactions, float(recent.get("views", 0) or 0))
         sampled = int(recent.get("videos", 0) or 0)
+        recent_video_views = recent.get("view_counts")
     elif raw.get("_mock") or "commentCount" in stats:
         # Modo mock (o una respuesta vieja que todavía trae commentCount).
         likes = 0
@@ -124,6 +126,7 @@ def normalize_youtube_channel(raw: RawChannelData) -> UnifiedChannel:
         saves=0,
         normalized_er=ner,
         engagement_videos_sampled=sampled,
+        recent_video_views=recent_video_views,
         tier=ContentTier.classify(subscribers),
         is_mock=bool(raw.get("_mock")),
     )
@@ -146,6 +149,7 @@ def apply_recent_engagement(channel: UnifiedChannel, recent: dict) -> UnifiedCha
         "raw_interactions": interactions,
         "normalized_er": normalized_engagement_rate(interactions, float(recent.get("views", 0) or 0)),
         "engagement_videos_sampled": int(recent.get("videos", 0) or 0),
+        "recent_video_views": recent.get("view_counts"),
     })
 
 

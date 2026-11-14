@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guía de uso</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1c2430; --muted: #5b6675; --line: #d9dee5;
+  --accent: #1d4ed8; --code-bg: #eef1f5; --warn-bg: #fff6e5; --warn-line: #b7791f;
+  --input: #e8eefc; --input-line: #3b5fc4; --control: #fdeee3; --control-line: #bf6a24;
+  --endpoint: #e9e8fb; --endpoint-line: #5a50c2; --process: #eef1f5; --process-line: #66717f;
+  --store: #e3f4ea; --store-line: #2c8050; --output: #fbf3d6; --output-line: #94790f;
+  --signal: #fde8ec; --signal-line: #b83a55;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0f141b; --panel: #171e27; --text: #e6eaf0; --muted: #9ba7b6; --line: #2d3743; --accent: #8ab4ff; --code-bg: #212a35; --warn-bg: #2c2415; --warn-line: #d39e3e; --input: #1c2a4a; --input-line: #7f9ee8; --control: #3a281a; --control-line: #d98e50; --endpoint: #2a2750; --endpoint-line: #9a92ea; --process: #252d38; --process-line: #8e99a8; --store: #17352a; --store-line: #5cb98a; --output: #39310f; --output-line: #cdb23f; --signal: #3c1a24; --signal-line: #e8798f; }
+}
+:root[data-theme="dark"] { --bg: #0f141b; --panel: #171e27; --text: #e6eaf0; --muted: #9ba7b6; --line: #2d3743; --accent: #8ab4ff; --code-bg: #212a35; --warn-bg: #2c2415; --warn-line: #d39e3e; --input: #1c2a4a; --input-line: #7f9ee8; --control: #3a281a; --control-line: #d98e50; --endpoint: #2a2750; --endpoint-line: #9a92ea; --process: #252d38; --process-line: #8e99a8; --store: #17352a; --store-line: #5cb98a; --output: #39310f; --output-line: #cdb23f; --signal: #3c1a24; --signal-line: #e8798f; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.6; font-size: 16px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 28px 16px; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+header .wrap { padding: 0; display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; }
+h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.2; }
+header p { margin: 0; color: var(--muted); }
+.lang { flex-shrink: 0; font-weight: 600; }
+nav { margin: 24px 0; padding: 16px 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+nav ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+section { margin: 36px 0; }
+h2 { font-size: 22px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 22px 0 8px; }
+a { color: var(--accent); }
+code { font-family: ui-monospace, Consolas, Menlo, monospace; font-size: .9em; background: var(--code-bg);
+  padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 14px; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; overflow-wrap: normal; }
+.table { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; background: var(--panel); font-size: 15px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); }
+.note { background: var(--warn-bg); border-left: 4px solid var(--warn-line); padding: 12px 16px;
+  border-radius: 4px; margin: 14px 0; }
+.graph { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
+.graph svg { display: block; width: 100%; min-width: 820px; height: auto; }
+.node rect { stroke-width: 1.4; }
+.node .title { font-size: 14px; font-weight: 650; fill: var(--text); text-anchor: middle; }
+.node .sub { font-size: 12px; fill: var(--muted); text-anchor: middle; }
+.input rect { fill: var(--input); stroke: var(--input-line); }
+.control rect { fill: var(--control); stroke: var(--control-line); }
+.endpoint rect { fill: var(--endpoint); stroke: var(--endpoint-line); }
+.process rect { fill: var(--process); stroke: var(--process-line); }
+.store rect { fill: var(--store); stroke: var(--store-line); }
+.output rect { fill: var(--output); stroke: var(--output-line); }
+.signal rect { fill: var(--signal); stroke: var(--signal-line); }
+.edge { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+.arrow { fill: var(--muted); }
+.edge-label { font-size: 12px; fill: var(--muted); text-anchor: middle; }
+.band-title { font-size: 14px; font-weight: 650; fill: var(--text); }
+.legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0;
+  font-size: 14px; color: var(--muted); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 14px; border-radius: 3px; border: 1.4px solid; display: inline-block; }
+.swatch.input { background: var(--input); border-color: var(--input-line); }
+.swatch.control { background: var(--control); border-color: var(--control-line); }
+.swatch.endpoint { background: var(--endpoint); border-color: var(--endpoint-line); }
+.swatch.process { background: var(--process); border-color: var(--process-line); }
+.swatch.store { background: var(--store); border-color: var(--store-line); }
+.swatch.output { background: var(--output); border-color: var(--output-line); }
+.swatch.signal { background: var(--signal); border-color: var(--signal-line); }
+footer { color: var(--muted); font-size: 14px; padding: 24px 0 48px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) { nav ol { columns: 1; } h1 { font-size: 24px; } }
+</style>
+</head>
+<body>
+<header><div class="wrap"><div><h1>Guía de uso</h1><p>Analítica de canales de YouTube y TikTok, y señales de audiencia inusual</p></div><a class="lang" href="/guia/en">English</a></div></header>
+<main class="wrap">
+<nav aria-label="Contenido"><ol>
+<li><a href="#que-es">Qué es</a></li>
+<li><a href="#inicio">Probarlo en local</a></li>
+<li><a href="#funcionamiento">Cómo funciona</a></li>
+<li><a href="#informacion">Qué datos maneja</a></li>
+<li><a href="#audiencia">Señales de audiencia</a></li>
+<li><a href="#busqueda">Buscar y comparar canales</a></li>
+<li><a href="#seguimiento">Seguir canales</a></li>
+<li><a href="#planes">Planes</a></li>
+<li><a href="#limitaciones">Limitaciones</a></li>
+</ol></nav>
+
+<section id="que-es"><h2>1. Qué es</h2>
+<p>Un sistema que reúne los números públicos de canales de YouTube y TikTok, los pone en una misma escala y los analiza. Sirve para comparar canales, ver cómo se reparte la audiencia, seguir su evolución y detectar números que no cierran.</p>
+<p>Además de esta guía, cada métrica tiene su ficha en el <a href="/manual/es">manual de métricas</a>, que también se lee desde la pestaña "Manual" del <a href="/dashboard">dashboard</a>.</p>
+</section>
+
+<section id="inicio"><h2>2. Probarlo en local</h2>
+<p>Desde la carpeta del proyecto, con Python 3.11 o superior:</p>
+<pre><code>python -m venv .venv
+.venv/Scripts/python.exe -m pip install -r requirements.txt
+.venv/Scripts/python.exe -m uvicorn app.main:app --reload</code></pre>
+<p>Después abrí el <a href="/dashboard">dashboard</a> o la <a href="/docs">documentación de la API</a>. Los datos se guardan en el archivo <code>channel_analytics.db</code>.</p>
+<div class="note"><strong>Con o sin datos reales.</strong> Si no hay credenciales, el sistema usa datos simulados y lo avisa en pantalla. Con <code>YOUTUBE_API_KEY</code> en el archivo <code>.env</code> consulta YouTube de verdad y gasta cuota de esa clave: cada búsqueda por tema cuesta 100 unidades de las 10.000 diarias gratuitas.</div>
+</section>
+
+<section id="funcionamiento"><h2>3. Cómo funciona</h2>
+<p>Hay dos caminos: las consultas en el momento, de izquierda a derecha, y el seguimiento periódico, en la fila de abajo.</p>
+<div class="graph"><svg viewBox="0 0 1030 390" role="img" aria-label="Grafo de funcionamiento: de las fuentes de datos al dashboard, con el seguimiento periódico"><defs><marker id="af" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0 0 L10 5 L0 10 z"/></marker></defs><path class="edge" d="M200 59 L215 59 L215 125 L230 125" marker-end="url(#af)"/><path class="edge" d="M200 139 L230 139" marker-end="url(#af)"/><path class="edge" d="M200 219 L215 219 L215 153 L230 153" marker-end="url(#af)"/><path class="edge" d="M400 139 L430 139" marker-end="url(#af)"/><path class="edge" d="M600 125 L615 125 L615 59 L630 59" marker-end="url(#af)"/><path class="edge" d="M600 139 L630 139" marker-end="url(#af)"/><path class="edge" d="M800 59 L815 59 L815 125 L830 125" marker-end="url(#af)"/><path class="edge" d="M800 139 L830 139" marker-end="url(#af)"/><path class="edge" d="M915 110 L915 88" marker-end="url(#af)"/><path class="edge" d="M915 210 L915 168" marker-end="url(#af)"/><path class="edge" d="M915 310 L915 268" marker-end="url(#af)"/><path class="edge" d="M400 339 L430 339" marker-end="url(#af)"/><path class="edge" d="M515 310 L515 240 L315 240 L315 168" marker-end="url(#af)"/><path class="edge" d="M600 339 L630 339" marker-end="url(#af)"/><path class="edge" d="M715 310 L715 168" marker-end="url(#af)"/><g class="node input" data-node="youtube"><rect x="30" y="30" width="170" height="58" rx="8"/><text class="title" x="115" y="56.5">API de YouTube</text><text class="sub" x="115" y="74.5">canales y videos recientes</text></g><g class="node input" data-node="tiktok"><rect x="30" y="110" width="170" height="58" rx="8"/><text class="title" x="115" y="136.5">API de TikTok</text><text class="sub" x="115" y="154.5">perfil y videos</text></g><g class="node input" data-node="mock"><rect x="30" y="190" width="170" height="58" rx="8"/><text class="title" x="115" y="216.5">Datos simulados</text><text class="sub" x="115" y="234.5">si no hay credenciales</text></g><g class="node process" data-node="collectors"><rect x="230" y="110" width="170" height="58" rx="8"/><text class="title" x="315" y="136.5">Colectores</text><text class="sub" x="315" y="154.5">uno por plataforma</text></g><g class="node process" data-node="normalizer"><rect x="430" y="110" width="170" height="58" rx="8"/><text class="title" x="515" y="136.5">Normalización</text><text class="sub" x="515" y="154.5">canal universal y NER</text></g><g class="node process" data-node="statistics"><rect x="630" y="30" width="170" height="58" rx="8"/><text class="title" x="715" y="56.5">Motor estadístico</text><text class="sub" x="715" y="74.5">distribución, Gini, correlación</text></g><g class="node signal" data-node="audience"><rect x="630" y="110" width="170" height="58" rx="8"/><text class="title" x="715" y="136.5">Señales de audiencia</text><text class="sub" x="715" y="154.5">puntaje e indicios</text></g><g class="node endpoint" data-node="api"><rect x="830" y="110" width="170" height="58" rx="8"/><text class="title" x="915" y="136.5">API</text><text class="sub" x="915" y="154.5">/api/v1</text></g><g class="node output" data-node="dashboard"><rect x="830" y="30" width="170" height="58" rx="8"/><text class="title" x="915" y="56.5">Dashboard</text><text class="sub" x="915" y="74.5">/dashboard</text></g><g class="node control" data-node="plans"><rect x="830" y="210" width="170" height="58" rx="8"/><text class="title" x="915" y="236.5">Sesión y planes</text><text class="sub" x="915" y="254.5">JWT, gating opcional</text></g><g class="node input" data-node="users"><rect x="830" y="310" width="170" height="58" rx="8"/><text class="title" x="915" y="336.5">Usuarios</text><text class="sub" x="915" y="354.5">registro e inicio de sesión</text></g><g class="node control" data-node="scheduler"><rect x="230" y="310" width="170" height="58" rx="8"/><text class="title" x="315" y="336.5">Programador</text><text class="sub" x="315" y="354.5">APScheduler</text></g><g class="node process" data-node="worker"><rect x="430" y="310" width="170" height="58" rx="8"/><text class="title" x="515" y="336.5">Worker de seguimiento</text><text class="sub" x="515" y="354.5">foto de cada canal</text></g><g class="node store" data-node="database"><rect x="630" y="310" width="170" height="58" rx="8"/><text class="title" x="715" y="336.5">Base de datos</text><text class="sub" x="715" y="354.5">canales y fotos</text></g><text class="edge-label" x="415" y="232">consulta</text><text class="edge-label" x="765" y="245">historial</text></svg></div><ul class="legend"><li><span class="swatch input"></span>Entrada</li><li><span class="swatch control"></span>Control</li><li><span class="swatch process"></span>Proceso</li><li><span class="swatch signal"></span>Señales</li><li><span class="swatch endpoint"></span>API</li><li><span class="swatch store"></span>Dato guardado</li><li><span class="swatch output"></span>Pantalla</li></ul>
+<h3>Cómo leer el grafo</h3>
+<ul>
+<li><strong>Fuentes y colectores:</strong> cada colector habla con una plataforma. Si no hay credenciales, usa datos simulados.</li>
+<li><strong>Normalización:</strong> convierte cada respuesta en un mismo formato de canal y calcula la interacción (NER).</li>
+<li><strong>Motor estadístico y señales de audiencia:</strong> analizan esos canales. Las señales también leen el historial guardado.</li>
+<li><strong>Sesión y planes:</strong> los planes existen, pero solo se exigen si se activa <code>REQUIRE_SUBSCRIPTION</code>. Por defecto, la estadística se usa sin iniciar sesión.</li>
+<li><strong>Programador y worker:</strong> toman periódicamente una foto de los canales seguidos, consultando a los colectores.</li>
+</ul>
+</section>
+
+<section id="informacion"><h2>4. Qué datos maneja</h2>
+<p>El sistema guarda solo los canales que decidís seguir, sus fotos periódicas, los tipos de canal y las cuentas de usuario. Las búsquedas no se guardan. Solo trabaja con datos públicos de cada canal, no con datos de sus espectadores.</p>
+<div class="graph"><svg viewBox="0 0 1040 415" role="img" aria-label="Grafo de información: qué datos guarda el sistema y cuáles no"><defs><marker id="ai" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0 0 L10 5 L0 10 z"/></marker></defs><path class="edge" d="M300 82 L385 82" marker-end="url(#ai)"/><path class="edge" d="M655 82 L740 82" marker-end="url(#ai)"/><path class="edge" d="M520 287 L520 325" marker-end="url(#ai)"/><path class="edge" d="M875 287 L875 361 L655 361" marker-end="url(#ai)"/><path class="edge" d="M875 150 L875 182 L700 182 L700 345 L655 345" marker-end="url(#ai)"/><g class="node store" data-node="types"><rect x="30" y="30" width="270" height="104" rx="8"/><text class="title" x="165" y="64.5">Tipo de canal</text><text class="sub" x="165" y="82.5">tabla channel_types</text><text class="sub" x="165" y="97.5">name, slug, description</text><text class="sub" x="165" y="112.5">is_custom</text></g><g class="node store" data-node="channel"><rect x="385" y="30" width="270" height="104" rx="8"/><text class="title" x="520" y="64.5">Canal seguido</text><text class="sub" x="520" y="82.5">tabla tracked_channels</text><text class="sub" x="520" y="97.5">platform, native_id, handle, name</text><text class="sub" x="520" y="112.5">active, channel_type_id</text></g><g class="node store" data-node="snapshot"><rect x="740" y="30" width="270" height="120" rx="8"/><text class="title" x="875" y="65">Foto del canal</text><text class="sub" x="875" y="83">tabla channel_metric_snapshots</text><text class="sub" x="875" y="98">snapshot_date, followers, total_views</text><text class="sub" x="875" y="113">total_posts, raw_interactions</text><text class="sub" x="875" y="128">normalized_er, tier</text></g><g class="node store" data-node="user"><rect x="30" y="190" width="270" height="120" rx="8"/><text class="title" x="165" y="225">Usuario</text><text class="sub" x="165" y="243">tabla users</text><text class="sub" x="165" y="258">email, hashed_password</text><text class="sub" x="165" y="273">plan, plan_active_until</text><text class="sub" x="165" y="288">report_credits, unica_access_until</text></g><g class="node input" data-node="search"><rect x="385" y="215" width="270" height="72" rx="8"/><text class="title" x="520" y="248.5">Canales de una búsqueda</text><text class="sub" x="520" y="266.5">seguidores, vistas, interacción</text></g><g class="node input" data-node="videos"><rect x="740" y="215" width="270" height="72" rx="8"/><text class="title" x="875" y="248.5">Videos recientes</text><text class="sub" x="875" y="266.5">vistas, me gusta, comentarios</text></g><g class="node signal" data-node="signals"><rect x="385" y="325" width="270" height="72" rx="8"/><text class="title" x="520" y="358.5">Señales de audiencia</text><text class="sub" x="520" y="376.5">se recalculan en cada consulta</text></g><text class="edge-label" x="342" y="72">1 a N</text><text class="edge-label" x="697" y="72">1 a N</text><text class="edge-label" x="560" y="310">se evalúan</text><text class="edge-label" x="760" y="176">historial</text><text class="band-title" x="385" y="208">No se guardan</text></svg></div>
+<h3>Cómo leer el grafo</h3>
+<ul>
+<li><strong>Tipo de canal, Canal seguido y Foto del canal:</strong> cada tipo agrupa varios canales, y cada canal acumula una foto por día como máximo.</li>
+<li><strong>Usuario:</strong> de la contraseña se guarda solo su hash. No está vinculado a los canales.</li>
+<li><strong>Lo que no se guarda:</strong> los resultados de búsqueda, los videos recientes y las señales se calculan en cada consulta. Por eso las señales de un canal seguido usan su foto: no incluyen me gusta por video, pero tampoco gastan cuota.</li>
+</ul>
+</section>
+
+<section id="audiencia"><h2>5. Señales de audiencia: ¿son creíbles los números?</h2>
+<p>Comprar seguidores o vistas deja rastros: mucha gente que sigue a un canal y casi nadie que lo mira. Esta función busca esos rastros en los números públicos. Se usa desde la pestaña "Audiencia" del <a href="/dashboard">dashboard</a>.</p>
+<div class="note"><strong>Son indicios, no una prueba.</strong> Con datos públicos no se puede ver quién mira ni identificar bots. Un canal legítimo también puede mostrar estas señales: conviene pedirle sus estadísticas internas antes de concluir algo.</div>
+<div class="table"><table>
+<tr><th>Señal</th><th>Qué se observa</th><th>Puntos</th></tr>
+<tr><td>Pocas vistas para tantos seguidores</td><td>Menos de 3 vistas históricas por seguidor. Menos de 1 pesa más.</td><td>20 o 35</td></tr>
+<tr><td>Interacción muy baja</td><td>Menos de 25% del piso de la plataforma. Menos de 10% pesa más.</td><td>15 o 30</td></tr>
+<tr><td>Los seguidores casi no miran los videos nuevos</td><td>Un video reciente típico llega a menos de 1,5% de los seguidores. Menos de 0,5% pesa más. No aplica con 50 o más vistas históricas por seguidor: un medio con años de historia o miles de videos reparte sus vistas.</td><td>12 o 25</td></tr>
+<tr><td>Muchas vistas, casi sin me gusta</td><td>Menos de 0,1% de me gusta sobre las vistas recientes.</td><td>20</td></tr>
+<tr><td>Muchos me gusta, casi sin comentarios</td><td>Menos de 0,2% de comentarios sobre los me gusta.</td><td>15</td></tr>
+<tr><td>Un video muy por encima del resto</td><td>20 veces las vistas típicas. Pesa poco porque los videos virales son comunes.</td><td>10</td></tr>
+<tr><td>Interacción muy por debajo de canales parecidos</td><td>Entre los más grandes de su búsqueda, con interacción anormalmente baja para el grupo.</td><td>15</td></tr>
+<tr><td>Salto brusco de seguidores</td><td>5% o más, muy por encima del ritmo habitual. Pesa más si las vistas no acompañan. Solo en canales seguidos.</td><td>30 o 40</td></tr>
+<tr><td>Caída brusca de seguidores</td><td>5% o más entre dos fotos. Puede ser una depuración de cuentas falsas. Solo en canales seguidos.</td><td>25</td></tr>
+</table></div>
+<h3>Cómo leer el resultado</h3>
+<div class="table"><table>
+<tr><th>Resultado</th><th>Puntaje</th><th>Qué significa</th></tr>
+<tr><td>Sin señales</td><td>Menos de 25</td><td>Nada llamativo en lo que se pudo medir. No garantiza que la audiencia sea real.</td></tr>
+<tr><td>Señal leve</td><td>25 a 49</td><td>Algo llama la atención. Una sola señal nunca pasa de este nivel.</td></tr>
+<tr><td>Para revisar</td><td>50 a 74</td><td>Varias señales juntas: conviene pedir datos internos.</td></tr>
+<tr><td>Muchas señales</td><td>75 o más</td><td>Varias señales fuertes: no conviene decidir solo con estos números.</td></tr>
+<tr><td>Datos insuficientes</td><td>—</td><td>Se pudieron calcular menos de 2 señales, o el canal tiene menos de 1.000 seguidores.</td></tr>
+</table></div>
+<p>El puntaje mide cuánto conviene revisar el canal, no la probabilidad de que haya fraude. Las señales sin datos se listan aparte y no cuentan: un me gusta oculto o un comentario desactivado no se toman como un cero.</p>
+<h3>Qué pedirle a un canal para confirmarlo</h3>
+<p>Estos datos solo los tiene el dueño del canal: usuarios únicos, tiempo de visualización, audiencia simultánea y origen del tráfico.</p>
+<h3>Desde la API</h3>
+<pre><code>curl "http://localhost:8000/api/v1/analytics/audience-integrity?query=fitness&amp;platform=youtube&amp;limit=30"
+curl "http://localhost:8000/api/v1/tracking/channels/1/audience-integrity"</code></pre>
+</section>
+
+<section id="busqueda"><h2>6. Buscar y comparar canales</h2>
+<p>Escribí un tema arriba en el <a href="/dashboard">dashboard</a> y el sistema trae sus canales:</p>
+<ul>
+<li><strong>Resumen:</strong> cantidad de canales por tamaño, desigualdad de audiencia, distribuciones y correlaciones.</li>
+<li><strong>Por canal:</strong> tabla ordenable, con el detalle de cada canal.</li>
+<li><strong>Por temática:</strong> compara las búsquedas hechas en la sesión.</li>
+<li><strong>Por categoría:</strong> un ranking por categoría de YouTube, sin elegir un tema.</li>
+<li><strong>Métricas del medio:</strong> valores de referencia de cada plataforma.</li>
+</ul>
+<p>Las rutas de la API están en <a href="/docs">/docs</a>.</p>
+</section>
+
+<section id="seguimiento"><h2>7. Seguir canales</h2>
+<p>En la pestaña "Catálogo" podés agregar canales al seguimiento y clasificarlos por tipo. Cada uno recibe una foto al darse de alta y otra en cada corrida del programador, todos los días a las 09:00 UTC por defecto. También podés correrlo a mano con el botón "Correr job ahora". Sin ese historial no hay señales de saltos ni caídas: hacen falta al menos 4 fotos.</p>
+</section>
+
+<section id="planes"><h2>8. Planes</h2>
+<div class="table"><table>
+<tr><th>Plan</th><th>Acceso</th></tr>
+<tr><td><code>free</code></td><td>Solo los valores de referencia de cada plataforma.</td></tr>
+<tr><td><code>unica</code></td><td>Toda la estadística durante 24 horas por cada crédito.</td></tr>
+<tr><td><code>mensual</code></td><td>Toda la estadística mientras el plan esté vigente.</td></tr>
+<tr><td><code>premium</code></td><td>Lo anterior, más proyecciones y recomendaciones.</td></tr>
+</table></div>
+<p>Solo se exigen con <code>REQUIRE_SUBSCRIPTION=true</code>. No hay cobro real conectado: los planes se asignan a mano desde la pestaña "Cuenta".</p>
+</section>
+
+<section id="limitaciones"><h2>9. Limitaciones</h2>
+<ul>
+<li><strong>Umbrales sin validar contra fraude real:</strong> no se contrastaron con canales de fraude comprobado. En una prueba del 09/11/2026 con 69 canales reales de YouTube, ninguno llegó a "para revisar". Al simular compras sobre 55 de ellos, 1 de cada 50 llegó a "para revisar" con 10 veces más seguidores y la mitad con 20 veces más vistas: es prudente y <strong>un resultado sin señales no descarta una compra moderada</strong>.</li>
+<li><strong>Solo datos públicos:</strong> no identifica bots ni cuentas individuales.</li>
+<li><strong>Sin Instagram:</strong> hoy solo se analizan YouTube y TikTok.</li>
+<li><strong>TikTok:</strong> no se evalúan los videos recientes, y la API oficial puede limitar qué se obtiene según el acceso aprobado.</li>
+<li><strong>Canales chicos:</strong> con menos de 1.000 seguidores casi no se evalúan, porque las proporciones oscilan demasiado.</li>
+<li><strong>Suscriptores redondeados:</strong> YouTube los informa redondeados a 3 cifras, por eso no se evalúan cambios menores a 5%.</li>
+</ul>
+</section>
+</main>
+<div class="wrap"><footer>Referencia de la API: <a href="/docs">/docs</a> · <a href="/dashboard">Dashboard</a></footer></div>
+</body>
+</html>
