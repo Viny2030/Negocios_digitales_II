@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel Analytics · Anti-fraud and new metrics</title>
+<style>
+:root { color-scheme: light dark; --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --card:#f6f8fa; --line:#d1d9e0; --accent:#0969da; --warn:#9a6700; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --card:#151b23; --line:#3d444d; --accent:#4493f8; --warn:#d29922; } }
+:root[data-theme="dark"] { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --card:#151b23; --line:#3d444d; --accent:#4493f8; --warn:#d29922; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width:860px; margin:0 auto; padding:32px 16px 64px; }
+nav.top { display:flex; gap:16px; justify-content:space-between; font-size:14px; margin-bottom:24px; }
+a { color:var(--accent); overflow-wrap:anywhere; }
+h1 { font-size:28px; margin:0 0 8px; }
+h2 { font-size:21px; margin:40px 0 8px; padding-top:8px; border-top:1px solid var(--line); scroll-margin-top:16px; }
+h3 { font-size:17px; margin:24px 0 6px; }
+p.lead { color:var(--muted); margin:0 0 12px; }
+p.stance { border-left:3px solid var(--accent); padding:8px 12px; background:var(--card); border-radius:4px; }
+p.note { border-left:3px solid var(--warn); padding:10px 12px; background:var(--card); border-radius:4px; }
+ol.toc { columns:2; font-size:15px; padding-left:0; list-style:none; }
+li { margin:4px 0; }
+code { font:14px ui-monospace, SFMono-Regular, Consolas, monospace; background:var(--card); border:1px solid var(--line); border-radius:4px; padding:0 4px; }
+@media (max-width:600px) { ol.toc { columns:1; } }
+</style>
+</head>
+<body>
+<main>
+<nav class="top"><a href="/guia/en">← Back to the guide</a><a href="/guia/antifraude">Español</a></nav>
+<h1>Anti-fraud and new metrics</h1>
+<p class="lead">What to add to channel statistics to detect inflated audiences, which metrics to add and which YouTube API rules must be followed. Research from November 2026.</p>
+<p class="stance">Audience signals flag public statistical anomalies for an advertiser or auditor to review with care. The system does not detect bots or accuse anyone.</p>
+<h2 id="contenido">Contents</h2>
+<ol class="toc"><li><a href="#resumen">Summary</a></li><li><a href="#cumplimiento">1. First: comply with the API rules</a></li><li><a href="#estado">2. What the system has today</a></li><li><a href="#limites">3. What public data cannot show</a></li><li><a href="#senales">4. New anti-fraud signals</a></li><li><a href="#metricas">5. Additional analytical metrics</a></li><li><a href="#prioridades">6. Recommended order</a></li><li><a href="#fuentes">7. Sources</a></li></ol>
+<section id="resumen">
+<h2>Summary</h2>
+<p>This page gathers what to add to channel statistics to detect inflated audiences (bought likes, views and subscribers) and which new metrics to add. Everything relies only on the official YouTube API, the one platform this project has real access to.</p>
+<p class="note"><strong>API compliance has to be solved before adding metrics.</strong> The system currently keeps history with no limit and computes its own scores from likes and views: both require a YouTube approval that has not been requested yet (section 1).</p>
+<ul><li>The strongest missing signal: <strong>views that go down</strong> between one snapshot and the next (YouTube removed fake views).</li><li>The cheapest step: store likes, comments and per-video views in each snapshot, and request <code>snippet,contentDetails</code> in the same <code>videos.list</code> call already made, at no extra quota.</li><li>The newest piece: comment quality (duplicates, generic text, repeated authors, bursts) with <code>commentThreads.list</code>.</li></ul>
+</section>
+<section id="cumplimiento">
+<h2>1. First: comply with the API rules</h2>
+<p>Sources: YouTube's <a href="https://developers.google.com/youtube/terms/developer-policies" target="_blank" rel="noopener">developer policies</a> and <a href="https://developers.google.com/youtube/terms/derived-metrics-policy" target="_blank" rel="noopener">derived metrics policy</a>.</p>
+<ul><li><strong>30-day limit.</strong> Section III.E.4.b forbids storing a channel's subscriber count for more than 30 days without the owner's authorization. Other data obtained with an API key must be deleted or refreshed after 30 days. Today <code>channel_metric_snapshots</code> keeps history with no limit.</li><li><strong>Possible exception.</strong> If YouTube accepts the derived-metrics use case, views, likes, subscribers and comment counts may be stored for up to 36 months. It is requested through the API contact form ("Section 5: Use Cases…", then "Analytics &amp; Reporting"). Titles, channel names and comment text stay bound to 30 days.</li><li><strong>Own scores.</strong> The policy forbids creating metrics from YouTube data unless the use case is accepted; its forbidden example is exactly "a score that factors in likes, total views", like NER and the audience score. If accepted, they must be shown apart from YouTube data and never as official data.</li><li><strong>Comparing channels.</strong> The policy allows ranking and comparing channels for historical analysis, but section III.E.2.a restricts aggregating data from channels with different owners. We found no text saying which rule prevails: ask in the same form.</li><li><strong>Scraping is forbidden</strong> (III.E.6). Everything on this page uses only the official API.</li></ul>
+<p><strong>Recommendation:</strong> request the approval before the March 2027 deployment and add a visible notice in the dashboard that scores belong to the project, not to YouTube.</p>
+</section>
+<section id="estado">
+<h2>2. What the system has today</h2>
+<p><code>app/services/analytics/audience_integrity.py</code> combines 7 signals and, if only one shows up, the result stays at "mild" at most:</p>
+<ul><li>lifetime views per subscriber;</li><li>low engagement against the platform benchmark;</li><li>recent video views against subscribers;</li><li>balance between views, likes and comments;</li><li>one video far above the rest;</li><li>outlier channel within its cohort;</li><li>subscriber jumps and drops in the history.</li></ul>
+<p>The design is cautious: a signal that cannot be computed does not count as normal, a single one is not enough to accuse, and the text says they are indications. It has three concrete gaps:</p>
+<ol><li>Daily snapshots store only channel totals, without likes, comments or per-video views. For tracked channels several signals end up "unavailable" (<code>channel_from_snapshot</code>).</li><li>Only subscriber drops are watched. Falling <strong>views</strong> are the most direct mark that YouTube detected and removed fake views, and they are not checked.</li><li>Thresholds are fixed and not validated against real cases (the code itself says so).</li></ol>
+</section>
+<section id="limites">
+<h2>3. What public data cannot show</h2>
+<ul><li>There is no watch time, retention, unique viewers or traffic source: only the channel owner sees that, in YouTube Analytics.</li><li>Subscriber counts come rounded to 3 significant figures once a channel passes 1,000 (<a href="https://help.rivaliq.com/en/articles/9788197-why-youtube-subscriber-counts-are-rounded" target="_blank" rel="noopener">Rival IQ</a>). That is why changes under 5% are not evaluated.</li><li><strong>View counting changed</strong> (<a href="https://developers.google.com/youtube/v3/revision_history" target="_blank" rel="noopener">API revision history</a>): since March 2025 Shorts views count every start and replay; since August 2026 a view counts as soon as playback starts; since November 2026 co-views on TVs are included. Those dates must be marked in the history so a rule change is not read as fraud.</li><li>YouTube removes fake views and subscribers after some time, sometimes weeks (<a href="https://support.google.com/youtube/answer/3399767?hl=en" target="_blank" rel="noopener">fake engagement policy</a>). A purchase shows up first as a rise and later as a drop.</li></ul>
+</section>
+<section id="senales">
+<h2>4. New anti-fraud signals</h2>
+<h3>A. No extra quota: data already fetched</h3>
+<ol><li><strong>Views that go down between snapshots.</strong> A channel's or video's total views should never decrease; if they do, it is almost certainly a YouTube correction of fake views (<a href="https://arxiv.org/html/2210.01096" target="_blank" rel="noopener">hourly view-count study</a>).</li><li><strong>Store likes, comments and recent video views in each snapshot</strong>, so balance signals also work for tracked channels and can be read as a time series.</li><li><strong>New subscribers per 1,000 new views</strong>, from the difference between snapshots. Bought subscribers rise without views rising.</li><li><strong>Spread of likes per view across videos</strong> (coefficient of variation or median deviation) instead of the sum: bought likes tend to concentrate on a few videos.</li><li><strong>Benford's law</strong> on the first digit of the views of all the channel's videos (<a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4550407/" target="_blank" rel="noopener">Golbeck</a>). Only as a weak filter, and with more than 100 videos.</li></ol>
+<h3>B. Low quota: 1 unit per call</h3>
+<ol><li><strong>Request <code>snippet,contentDetails</code> in the same <code>videos.list</code></strong> (<a href="https://developers.google.com/youtube/data/reference/rest/v3/videos/list" target="_blank" rel="noopener">reference</a>); it costs 1 unit per call regardless of parts (<a href="https://developers.google.com/youtube/v3/determine_quota_cost" target="_blank" rel="noopener">quota costs</a>). Duration separates Shorts from long videos, which have different benchmarks; <code>publishedAt</code> measures views by video age and enables PFI, already defined in <code>normalizer.py</code> but unused.</li><li><strong>Daily per-video snapshots</strong>, not only per channel. A view jump on an old video with no apparent cause is a typical purchase pattern.</li><li><strong>Comment quality</strong> with <code>commentThreads.list</code> (<a href="https://developers.google.com/youtube/data/reference/rest/v3/commentThreads/list" target="_blank" rel="noopener">reference</a>): share of duplicates or near-duplicates, of generic or emoji-only comments, of unique authors, and bursts within minutes. Across channels, the same authors commenting at the same time point to coordination (<a href="https://arxiv.org/html/1512.05457" target="_blank" rel="noopener">Google paper</a>). Text may only be kept for 30 days: store the indicators and drop the text.</li><li><strong>Try <code>videos.batchGetStats</code></strong>, a June 2026 method costing 1 unit in its own quota bucket, which could free the main quota for the daily job. The documentation does not detail its fields.</li></ol>
+<h3>C. How decisions are made</h3>
+<ol><li><strong>Own benchmarks by tier and format</strong>, computed from the project's database: vendor benchmarks contradict each other and do not disclose their data.</li><li><strong>Robust scores</strong> (z-score with median deviation) within each cohort instead of fixed thresholds.</li><li><strong>Validation against known cases:</strong> use channels with YouTube purge drops and the mock mode's simulated cases as weak labels, and measure how often each signal is right before weighting it.</li></ol>
+</section>
+<section id="metricas">
+<h2>5. Additional analytical metrics</h2>
+<ul><li><strong>Typical views per video</strong> (median): expected performance without the distortion of viral hits.</li><li><strong>Consistency:</strong> coefficient of variation of views per video.</li><li><strong>Dependence on viral hits:</strong> Gini or Lorenz curve within the channel. <code>lorenz_curve()</code> already exists and no endpoint uses it.</li><li><strong>Hit rate:</strong> share of videos above the channel's median.</li><li><strong>Growth speed and acceleration</strong> of subscribers and views, per day and per week.</li><li><strong>Conversation depth:</strong> comments per like.</li><li><strong>Engagement split by Shorts and long video</strong>, with its decay by video age.</li><li><strong>PFI:</strong> publishing frequency and regularity.</li></ul>
+</section>
+<section id="prioridades">
+<h2>6. Recommended order</h2>
+<ol><li>Compliance: request derived-metrics approval, add the dashboard notice and define what gets deleted after 30 days until it arrives.</li><li>Detect falling views and store likes, comments and per-video views in each snapshot. No extra quota.</li><li>Add <code>snippet,contentDetails</code> to the current <code>videos.list</code>: Shorts versus long video, PFI and video age.</li><li>Comment quality: about 700 units per day for about 70 channels with 10 videos (estimated at 100 comments per page, to be confirmed in the documentation).</li><li>Cohort benchmarks, robust scores and validation.</li></ol>
+</section>
+<section id="fuentes">
+<h2>7. Sources</h2>
+<h3>Official YouTube</h3>
+<ul><li><a href="https://developers.google.com/youtube/terms/developer-policies" target="_blank" rel="noopener">Developer policies</a></li><li><a href="https://developers.google.com/youtube/terms/derived-metrics-policy" target="_blank" rel="noopener">Derived metrics policy</a></li><li><a href="https://developers.google.com/youtube/terms/developer-policies-guide" target="_blank" rel="noopener">Compliance guide</a></li><li><a href="https://developers.google.com/youtube/v3/revision_history" target="_blank" rel="noopener">API revision history</a></li><li><a href="https://developers.google.com/youtube/v3/determine_quota_cost" target="_blank" rel="noopener">Quota costs</a></li><li><a href="https://developers.google.com/youtube/data/reference/rest/v3/videos/list" target="_blank" rel="noopener">videos.list</a></li><li><a href="https://developers.google.com/youtube/data/reference/rest/v3/commentThreads/list" target="_blank" rel="noopener">commentThreads.list</a></li><li><a href="https://support.google.com/youtube/answer/3399767?hl=en" target="_blank" rel="noopener">Fake engagement policy</a></li><li><a href="https://support.google.com/youtube/answer/2801973" target="_blank" rel="noopener">Spam policy</a></li></ul>
+<h3>Academic studies</h3>
+<ul><li><a href="https://arxiv.org/html/2210.01096" target="_blank" rel="noopener">Fake views on YouTube from hourly counts</a></li><li><a href="https://arxiv.org/html/1512.05457" target="_blank" rel="noopener">Clustering fake engagement at scale (Google)</a></li><li><a href="https://arxiv.org/html/2005.06243" target="_blank" rel="noopener">Collusive entities on YouTube</a></li><li><a href="https://nss.kaist.ac.kr/assets/papers/imc2023-na.pdf" target="_blank" rel="noopener">Comment bots on YouTube (IMC 2023)</a></li><li><a href="https://www.securitee.org/files/likecomment_ndss2024.pdf" target="_blank" rel="noopener">Scam comments (NDSS 2024)</a></li><li><a href="https://ceur-ws.org/Vol-3138/paper6_jot.pdf" target="_blank" rel="noopener">Coordinated inauthentic behavior on YouTube</a></li><li><a href="https://arxiv.org/pdf/1507.08874" target="_blank" rel="noopener">View fraud detection</a></li><li><a href="https://www.researchgate.net/publication/276553787_Analysis_and_Detection_of_Fake_Views_in_Online_Video_Services" target="_blank" rel="noopener">Analysis and Detection of Fake Views</a></li><li><a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4550407/" target="_blank" rel="noopener">Benford's law in social networks (Golbeck)</a></li><li><a href="https://link.springer.com/chapter/10.1007/978-3-031-24049-2_3" target="_blank" rel="noopener">Benford and machine learning for bots</a></li><li><a href="https://doaj.org/article/79e77448ebb0404e854fde73e16dbf23" target="_blank" rel="noopener">YouTube comment spam classification</a></li></ul>
+<h3>Industry (vendors, not independent sources)</h3>
+<ul><li><a href="https://help.hypeauditor.com/en/articles/2221731-what-is-aqs-audience-quality-score-and-how-is-it-calculated" target="_blank" rel="noopener">HypeAuditor: Audience Quality Score</a></li><li><a href="https://help.hypeauditor.com/en/articles/2541185-how-do-you-detect-comments-authenticity" target="_blank" rel="noopener">HypeAuditor: comment authenticity</a></li><li><a href="https://socialblade.com/blog/dont-freak-drops-subs-views/" target="_blank" rel="noopener">Social Blade: why subscribers and views drop</a></li><li><a href="https://help.rivaliq.com/en/articles/9788197-why-youtube-subscriber-counts-are-rounded" target="_blank" rel="noopener">Rival IQ: subscriber rounding</a></li><li>Engagement benchmarks, which contradict each other: <a href="https://sociavault.com/blog/good-engagement-rate-youtube" target="_blank" rel="noopener">Sociavault</a>, <a href="https://metricool.com/youtube-trends/" target="_blank" rel="noopener">Metricool</a>, <a href="https://www.dashsocial.com/social-media-benchmarks/youtube" target="_blank" rel="noopener">Dash Social</a>, <a href="https://vidiq.com/research/youtube-subscriber-benchmarks-2026/" target="_blank" rel="noopener">vidIQ 2026</a></li><li><a href="https://www.github.com/darmiel/yt-spam" target="_blank" rel="noopener">yt-spam: open-source heuristics</a></li></ul>
+</section>
+</main>
+</body>
+</html>

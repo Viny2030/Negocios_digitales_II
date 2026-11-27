@@ -281,6 +281,82 @@ async def catalog_summary(session: AsyncSession) -> dict:
     return {"total": total, "by_type": by_type}
 
 
+async def catalog_stock(session: AsyncSession, days: int = 14, today: date | None = None) -> dict:
+    """
+    Stock de canales ACTIVOS por tipo de canal y cuántos de ellos tienen foto (snapshot) en cada
+    uno de los últimos `days` días calendario — la pestaña "Actualización" del dashboard. Los días
+    sin corrida del job aparecen con 0 a propósito: el hueco es justamente lo que hay que ver.
+
+    `today` usa `date.today()` por default, igual que `upsert_snapshot_from_channel` al fechar las
+    fotos, para que "hoy" signifique lo mismo en los dos lados.
+    """
+    today = today or date.today()
+    dates = [today - timedelta(days=offset) for offset in range(days)]
+    window_start = dates[-1]
+
+    summary = await catalog_summary(session)
+
+    active_snapshots = (
+        select(TrackedChannel.channel_type_id, ChannelMetricSnapshot.snapshot_date)
+        .join(ChannelMetricSnapshot, ChannelMetricSnapshot.tracked_channel_id == TrackedChannel.id)
+        .where(TrackedChannel.active.is_(True))
+        .subquery()
+    )
+    window_stmt = (
+        select(active_snapshots.c.channel_type_id, active_snapshots.c.snapshot_date, func.count())
+        .where(active_snapshots.c.snapshot_date >= window_start, active_snapshots.c.snapshot_date <= today)
+        .group_by(active_snapshots.c.channel_type_id, active_snapshots.c.snapshot_date)
+    )
+    counts: dict[tuple[int | None, date], int] = {
+        (type_id, snap_date): count for type_id, snap_date, count in (await session.execute(window_stmt)).all()
+    }
+    last_stmt = (
+        select(active_snapshots.c.channel_type_id, func.max(active_snapshots.c.snapshot_date))
+        .group_by(active_snapshots.c.channel_type_id)
+    )
+    last_by_type: dict[int | None, date] = dict((await session.execute(last_stmt)).all())
+
+    last_fetched_stmt = (
+        select(func.max(ChannelMetricSnapshot.fetched_at))
+        .join(TrackedChannel, ChannelMetricSnapshot.tracked_channel_id == TrackedChannel.id)
+        .where(TrackedChannel.active.is_(True))
+    )
+    last_fetched_at = (await session.execute(last_fetched_stmt)).scalar_one_or_none()
+
+    rows = []
+    for row in summary["by_type"]:
+        channel_type = row["channel_type"]
+        type_id = channel_type.id if channel_type else None
+        if row["channel_count"] == 0:
+            continue
+        rows.append({
+            "channel_type": channel_type,
+            "channel_count": row["channel_count"],
+            "last_snapshot_date": last_by_type.get(type_id),
+            "snapshots_by_date": [counts.get((type_id, d), 0) for d in dates],
+        })
+
+    last_dates = [d for d in last_by_type.values() if d is not None]
+    latest = max(last_dates) if last_dates else None
+    latest_count = 0
+    if latest is not None:
+        latest_count_stmt = select(func.count()).select_from(active_snapshots).where(
+            active_snapshots.c.snapshot_date == latest
+        )
+        latest_count = (await session.execute(latest_count_stmt)).scalar_one()
+    return {
+        "total": summary["total"],
+        "dates": dates,
+        "rows": rows,
+        "totals_by_date": [sum(r["snapshots_by_date"][i] for r in rows) for i in range(len(dates))],
+        "latest_snapshot_date": latest,
+        # Independiente de la ventana: la última foto puede ser más vieja que `days`.
+        "latest_snapshot_count": latest_count,
+        "days_since_last_snapshot": (today - latest).days if latest else None,
+        "last_fetched_at": last_fetched_at,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Descubrimiento + alta masiva de canales (manual vía endpoint, o
 # automática vía el job de `core/scheduler.py` — ver `ENABLE_AUTO_DISCOVERY`)
