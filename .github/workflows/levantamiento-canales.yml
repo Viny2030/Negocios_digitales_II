@@ -1,0 +1,143 @@
+# Levantamiento diario de canales (principal): toma la foto del día de todos los canales en
+# seguimiento directamente desde el runner de GitHub (scripts/levantar_canales.py), sin depender
+# de que la API esté levantada en una PC ni deployada, y avisa el resultado por mail.
+#
+# Hay dos workflows por seguridad:
+#   - este, el principal, todos los días a las 15:00 UTC;
+#   - levantamiento-canales-respaldo.yml, a las 21:00 UTC, que reusa este mismo archivo con
+#     modo "respaldo": si la foto de hoy ya está, no consulta la API; si falta, la toma.
+# Los dos comparten el grupo de concurrencia, así nunca trabajan sobre la base al mismo tiempo.
+#
+# Dónde vive la base:
+#   - Hasta tener el Postgres de Railway (febrero 2027): el SQLite viaja entre corridas como
+#     artifact CIFRADO. El repo es público y cualquier usuario logueado de GitHub puede bajar sus
+#     artifacts, por eso se cifra con gpg (AES256) usando el secret DB_PASSPHRASE. Cada corrida
+#     baja el último artifact, toma la foto y sube la base nueva; si la foto falla no sube nada y
+#     el artifact anterior sigue siendo el último. La primera corrida arranca de
+#     bootstrap/channel_analytics.db.gpg (copia cifrada de la base local).
+#   - Con Postgres: cargar el secret DATABASE_URL (la URL de Railway) y migrar el histórico con
+#     scripts/migrar_sqlite_a_postgres.py. Desde ahí se escribe directo en Postgres y se saltean
+#     los pasos del artifact, sin cambiar este archivo.
+#
+# Secrets:
+#   YOUTUBE_API_KEY  obligatorio
+#   DB_PASSPHRASE    obligatorio en modo artifact
+#   DATABASE_URL     opcional (Postgres)
+#   SMTP_USERNAME, SMTP_PASSWORD, MAIL_TO   opcionales: mail con el resultado (Gmail con
+#                    contraseña de aplicación; SMTP_HOST/SMTP_PORT si es otro proveedor)
+# Para tener la base en la PC: scripts/descargar_base.ps1.
+#
+# Ojo: GitHub pausa los workflows programados de un repo público después de 60 días sin
+# actividad en el repo; si pasa, se reactivan desde la pestaña Actions.
+name: Levantamiento diario de canales
+
+on:
+  schedule:
+    - cron: "0 15 * * *"  # 15:00 UTC (12:00 Argentina), igual que DAILY_JOB_HOUR_UTC
+  workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      modo:
+        description: "principal (siempre toma la foto) | respaldo (solo si falta)"
+        type: string
+        default: principal
+
+permissions:
+  contents: read
+  actions: read  # para bajar el artifact de la corrida anterior
+
+jobs:
+  levantar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: levantamiento-canales
+      cancel-in-progress: false
+    env:
+      MODO: ${{ inputs.modo || 'principal' }}
+      ARTIFACT_NAME: channel-analytics-db
+      USE_POSTGRES: ${{ secrets.DATABASE_URL != '' }}
+      DB_PASSPHRASE: ${{ secrets.DB_PASSPHRASE }}
+      GH_TOKEN: ${{ github.token }}
+      RESUMEN_PATH: ${{ github.workspace }}/resumen.md
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Recuperar la base de la corrida anterior
+        if: env.USE_POSTGRES != 'true'
+        run: |
+          set -euo pipefail
+          if [ -z "$DB_PASSPHRASE" ]; then
+            echo "::error::Falta el secret DB_PASSPHRASE"
+            exit 1
+          fi
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+          if [ -n "$id" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > base.zip
+            unzip -o -q base.zip channel_analytics.db.gpg
+            rm base.zip
+            echo "Base recuperada del artifact ${id}"
+          elif [ -f bootstrap/channel_analytics.db.gpg ]; then
+            cp bootstrap/channel_analytics.db.gpg .
+            echo "::notice::Primera corrida: se usa la base inicial de bootstrap/"
+          else
+            echo "::error::No hay artifact previo ni base inicial: no se arranca con una base vacía"
+            exit 1
+          fi
+          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 0 \
+            --decrypt --output channel_analytics.db channel_analytics.db.gpg <<< "$DB_PASSPHRASE"
+          rm channel_analytics.db.gpg
+
+      - name: Tomar la foto del día
+        id: foto
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          USE_MOCK_DATA_IF_NO_CREDENTIALS: "false"
+          ENABLE_SCHEDULER: "false"
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'sqlite+aiosqlite:///./channel_analytics.db' }}
+        run: |
+          if [ "$MODO" = "respaldo" ]; then
+            python -m scripts.levantar_canales --solo-si-falta
+          else
+            python -m scripts.levantar_canales
+          fi
+
+      - name: Verificar y cifrar la base
+        if: env.USE_POSTGRES != 'true' && steps.foto.outputs.resultado == 'tomada'
+        run: |
+          set -euo pipefail
+          python -c "import sqlite3, sys; r = sqlite3.connect('channel_analytics.db').execute('PRAGMA integrity_check').fetchone()[0]; print('integrity_check:', r); sys.exit(r != 'ok')"
+          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 --output channel_analytics.db.gpg channel_analytics.db <<< "$DB_PASSPHRASE"
+
+      - name: Guardar la base para la próxima corrida
+        if: env.USE_POSTGRES != 'true' && steps.foto.outputs.resultado == 'tomada'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: channel_analytics.db.gpg
+          retention-days: 90
+          if-no-files-found: error
+
+      # El principal avisa siempre; el respaldo solo si tuvo que tomar la foto o si falló.
+      - name: Avisar por mail
+        if: always() && (env.MODO != 'respaldo' || job.status != 'success' || steps.foto.outputs.resultado == 'tomada')
+        env:
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          ESTADO: ${{ job.status }}
+          FOTO: ${{ steps.foto.outputs.resultado }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python -m scripts.notificar_mail

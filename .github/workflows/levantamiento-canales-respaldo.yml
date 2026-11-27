@@ -1,0 +1,22 @@
+# Levantamiento de canales (respaldo): seis horas después del principal, reusa
+# levantamiento-canales.yml en modo "respaldo". Si la foto de hoy ya está tomada no consulta la
+# API ni gasta cuota (y no manda mail); si falta, porque el principal falló, se demoró o GitHub
+# no lo disparó, la toma, guarda la base y avisa por mail. La explicación completa, los secrets y
+# dónde vive la base están en levantamiento-canales.yml.
+name: Levantamiento de canales (respaldo)
+
+on:
+  schedule:
+    - cron: "0 21 * * *"  # 21:00 UTC (18:00 Argentina)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  respaldo:
+    uses: ./.github/workflows/levantamiento-canales.yml
+    with:
+      modo: respaldo
+    secrets: inherit
