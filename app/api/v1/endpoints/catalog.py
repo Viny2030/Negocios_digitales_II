@@ -15,7 +15,7 @@ Igual que `/tracking/*`, los endpoints de escritura exigen `X-Admin-Token`
 """
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import verify_admin_token
@@ -23,16 +23,19 @@ from app.api.v1.endpoints.tracking import _tracked_out
 from app.core.exceptions import ChannelTypeNotFoundError, TrackedChannelNotFoundError
 from app.db.session import get_session
 from app.models.schemas import (
+    CatalogStockResponse,
     CatalogSummaryResponse,
     ChannelTypeCount,
     ChannelTypeCreate,
     ChannelTypeListResponse,
     ChannelTypeOut,
+    ChannelTypeStock,
     ExecutionMeta,
     SetChannelTypeRequest,
     TrackedChannelOut,
 )
 from app.services.tracked_channels import (
+    catalog_stock,
     catalog_summary,
     create_channel_type,
     delete_channel_type,
@@ -97,6 +100,43 @@ async def get_catalog_summary(session: AsyncSession = Depends(get_session)) -> C
             )
             for row in summary["by_type"]
         ],
+    )
+
+
+@router.get(
+    "/stock", response_model=CatalogStockResponse,
+    summary="Stock de canales activos por tipo y cuántos tuvieron foto en cada uno de los últimos días",
+)
+async def get_catalog_stock(
+    days: int = Query(14, ge=1, le=90, description="Días calendario hacia atrás, contando hoy"),
+    session: AsyncSession = Depends(get_session),
+) -> CatalogStockResponse:
+    """
+    Vista de "actualización de datos": el stock de canales en seguimiento separado por tipo, la
+    fecha de la última foto de cada tipo y, día por día, cuántos canales se actualizaron. Un día
+    en 0 indica que el job diario no corrió. Lee solo la base: no gasta cuota de la API.
+    """
+    start = time.perf_counter()
+    stock = await catalog_stock(session, days=days)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    return CatalogStockResponse(
+        meta=ExecutionMeta(response_time_ms=round(elapsed_ms, 2)),
+        total_channels=stock["total"],
+        dates=stock["dates"],
+        rows=[
+            ChannelTypeStock(
+                channel_type=ChannelTypeOut.model_validate(row["channel_type"]) if row["channel_type"] else None,
+                channel_count=row["channel_count"],
+                last_snapshot_date=row["last_snapshot_date"],
+                snapshots_by_date=row["snapshots_by_date"],
+            )
+            for row in stock["rows"]
+        ],
+        totals_by_date=stock["totals_by_date"],
+        latest_snapshot_date=stock["latest_snapshot_date"],
+        latest_snapshot_count=stock["latest_snapshot_count"],
+        days_since_last_snapshot=stock["days_since_last_snapshot"],
+        last_fetched_at=stock["last_fetched_at"],
     )
 
 

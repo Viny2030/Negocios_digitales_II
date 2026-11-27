@@ -166,7 +166,9 @@
   button.ghost:disabled { opacity: 0.5; cursor: default; }
   #theme-toggle { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0; }
 
-  nav.tabs { display: flex; gap: 4px; margin-top: 12px; }
+  /* overflow-x: con 10 pestañas, en pantallas angostas la barra se desplaza en vez de ensanchar la página. */
+  nav.tabs { display: flex; gap: 4px; margin-top: 12px; overflow-x: auto; }
+  nav.tabs button { flex: none; white-space: nowrap; }
   nav.tabs button {
     background: transparent; border: none; padding: 8px 14px; border-radius: 8px 8px 0 0;
     color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;
@@ -177,6 +179,13 @@
   nav.tabs button[data-tab="tematicas"].active { border-bottom-color: var(--accent-magenta); }
   nav.tabs button[data-tab="benchmarks"].active { border-bottom-color: var(--accent-yellow); }
   nav.tabs button[data-tab="catalogo"].active { border-bottom-color: var(--accent-violet); }
+  nav.tabs button[data-tab="actualizacion"].active { border-bottom-color: var(--accent-aqua); }
+  table.stock-table td.day { text-align: center; min-width: 46px; }
+  table.stock-table td.day.full { color: var(--status-good); font-weight: 600; }
+  table.stock-table td.day.partial { color: #9a6900; font-weight: 600; }
+  table.stock-table td.day.none { color: var(--text-muted); }
+  table.stock-table th.day { text-align: center; }
+  table.stock-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); }
   nav.tabs button[data-tab="cuenta"].active { border-bottom-color: var(--accent-aqua); }
   nav.tabs button[data-tab="manual"].active { border-bottom-color: var(--accent-yellow); }
 
@@ -395,6 +404,7 @@
     <button data-tab="audiencia">Audiencia</button>
     <button data-tab="benchmarks">Métricas del medio</button>
     <button data-tab="catalogo">Catálogo</button>
+    <button data-tab="actualizacion">Actualización</button>
     <button data-tab="cuenta">Cuenta</button>
     <button data-tab="manual" style="margin-left:auto;">📖 Manual</button>
   </nav>
@@ -633,6 +643,33 @@
         </table>
       </div>
       <div id="job-result" class="job-result"></div>
+    </div>
+  </section>
+
+  <section id="tab-actualizacion" class="tab-panel">
+    <div class="card card-accent aqua">
+      <div class="filter-row" style="justify-content:space-between;">
+        <h3 style="margin:0;">Actualización de datos</h3>
+        <div class="inline-actions" style="align-items:center;gap:8px;">
+          <select id="stock-days" aria-label="Días a mostrar">
+            <option value="7">Últimos 7 días</option>
+            <option value="14" selected>Últimos 14 días</option>
+            <option value="30">Últimos 30 días</option>
+          </select>
+          <button type="button" class="ghost accent-aqua" id="stock-reload-btn">↻ Recargar</button>
+        </div>
+      </div>
+      <p class="card-sub">Stock de canales <strong>activos</strong> en seguimiento, separado por categoría, y cuántos tuvieron su foto diaria cada día. Un día en 0 significa que el job diario no corrió (se puede correr a mano desde "Catálogo" → "▶ Correr job ahora"). Lee solo la base local: no gasta cuota de YouTube.</p>
+      <div class="kpi-row" id="stock-kpis" style="margin-bottom:14px;"></div>
+      <div id="stock-empty" class="empty-note">Todavía no hay canales en seguimiento.</div>
+      <div id="stock-content" style="display:none;overflow-x:auto;">
+        <table class="data-table stock-table">
+          <thead id="stock-thead"></thead>
+          <tbody id="stock-tbody"></tbody>
+          <tfoot id="stock-tfoot"></tfoot>
+        </table>
+      </div>
+      <div id="stock-status" class="job-result"></div>
     </div>
   </section>
 
@@ -1853,6 +1890,7 @@
       }
       resultEl.innerHTML = html;
       await loadTrackedChannels();
+      loadStock();
       // Si el card de análisis de "Por canal" está abierto sobre un canal
       // trackeado, refrescarlo — el job recién corrido le puede haber
       // sumado un snapshot nuevo al historial que muestra.
@@ -1883,6 +1921,75 @@
     });
     document.getElementById("run-job-btn").addEventListener("click", runDailyJobNow);
     document.getElementById("track-show-inactive").addEventListener("change", loadTrackedChannels);
+  }
+
+  // ---------------------------------------------------------------------
+  // Render: Actualización tab (stock por categoría y fotos diarias)
+  // ---------------------------------------------------------------------
+  async function loadStock() {
+    const days = document.getElementById("stock-days").value;
+    const statusEl = document.getElementById("stock-status");
+    statusEl.textContent = "Cargando…";
+    statusEl.style.color = "var(--text-muted)";
+    try {
+      const data = await fetchJSON(`${API}/catalog/stock?days=${encodeURIComponent(days)}`);
+      renderStock(data);
+      statusEl.textContent = "";
+    } catch (e) {
+      statusEl.innerHTML = `<span style="color:var(--status-critical)">No se pudo cargar el stock: ${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  function stockCell(count, total) {
+    const cls = count === 0 ? "none" : count >= total ? "full" : "partial";
+    return `<td class="day ${cls}">${fmtInt(count)}</td>`;
+  }
+
+  function renderStock(data) {
+    const updatedLatest = data.latest_snapshot_count;
+    const lag = data.days_since_last_snapshot;
+    const lagText = lag === null ? "Sin fotos todavía" : lag === 0 ? "Hoy" : lag === 1 ? "Hace 1 día" : `Hace ${lag} días`;
+    const lagBadge = lag === null ? "" : statusBadge(lag <= 1 ? "within" : "below", lag <= 1 ? "Al día" : "Desactualizado");
+    // floor: 802 de 804 no debe leerse como "100%".
+    const coverage = data.total_channels ? Math.floor(updatedLatest / data.total_channels * 100) : 0;
+    // fetched_at llega en UTC sin zona; se muestra en la hora local del navegador, en formato 24 h.
+    const lastRun = data.last_fetched_at
+      ? new Date(`${data.last_fetched_at}Z`).toLocaleString("es-AR", {
+          day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+        })
+      : "—";
+
+    document.getElementById("stock-kpis").innerHTML = `
+      <div class="stat-tile"><div class="stat-label">Stock de canales activos</div><div class="stat-value">${fmtInt(data.total_channels)}</div></div>
+      <div class="stat-tile"><div class="stat-label">Última foto diaria</div><div class="stat-value">${escapeHtml(fmtDate(data.latest_snapshot_date))}</div>${lagBadge}<div class="stat-label" style="margin-top:4px;">${escapeHtml(lagText)}</div></div>
+      <div class="stat-tile"><div class="stat-label">Actualizados en esa foto</div><div class="stat-value">${fmtInt(updatedLatest)}</div><div class="stat-label" style="margin-top:4px;">de ${fmtInt(data.total_channels)} (${coverage}% del stock)</div></div>
+      <div class="stat-tile"><div class="stat-label">Última corrida del job</div><div class="stat-value" style="font-size:15px;">${escapeHtml(lastRun)}</div></div>`;
+
+    const hasRows = data.rows.length > 0;
+    document.getElementById("stock-empty").style.display = hasRows ? "none" : "block";
+    document.getElementById("stock-content").style.display = hasRows ? "block" : "none";
+    if (!hasRows) return;
+
+    document.getElementById("stock-thead").innerHTML = `<tr>
+      <th>Categoría</th><th class="num">Stock</th><th>Última foto</th>
+      ${data.dates.map(d => `<th class="day">${escapeHtml(fmtDate(d))}</th>`).join("")}
+    </tr>`;
+    document.getElementById("stock-tbody").innerHTML = data.rows.map(row => `<tr>
+      <td>${row.channel_type ? escapeHtml(row.channel_type.name) : "<em>Sin categoría</em>"}</td>
+      <td class="num">${fmtInt(row.channel_count)}</td>
+      <td>${escapeHtml(fmtDate(row.last_snapshot_date))}</td>
+      ${row.snapshots_by_date.map(n => stockCell(n, row.channel_count)).join("")}
+    </tr>`).join("");
+    document.getElementById("stock-tfoot").innerHTML = `<tr>
+      <td>Total</td><td class="num">${fmtInt(data.total_channels)}</td><td>${escapeHtml(fmtDate(data.latest_snapshot_date))}</td>
+      ${data.totals_by_date.map(n => stockCell(n, data.total_channels)).join("")}
+    </tr>`;
+  }
+
+  function initStockTab() {
+    document.querySelector('nav.tabs button[data-tab="actualizacion"]').addEventListener("click", loadStock);
+    document.getElementById("stock-days").addEventListener("change", loadStock);
+    document.getElementById("stock-reload-btn").addEventListener("click", loadStock);
   }
 
   // ---------------------------------------------------------------------
@@ -2649,6 +2756,7 @@
   initForm();
   initChannelsTableEvents();
   initCatalogTab();
+  initStockTab();
   initAuthTab();
   initManualTab();
   loadBenchmarks();

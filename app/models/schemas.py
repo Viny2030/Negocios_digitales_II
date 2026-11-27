@@ -392,6 +392,29 @@ class CatalogSummaryResponse(BaseModel):
     by_type: list[ChannelTypeCount]
 
 
+class ChannelTypeStock(BaseModel):
+    """Stock de canales activos de un tipo y cuántos tuvieron foto en cada día de la ventana."""
+
+    channel_type: ChannelTypeOut | None = Field(None, description="None = canales sin tipo asignado todavía")
+    channel_count: int
+    last_snapshot_date: date | None = Field(None, description="Día de la foto más reciente de algún canal de este tipo")
+    snapshots_by_date: list[int] = Field(..., description="Canales con foto por día, alineado con `dates`")
+
+
+class CatalogStockResponse(BaseModel):
+    """Respuesta de GET /api/v1/catalog/stock — stock por tipo y actualización diaria."""
+
+    meta: ExecutionMeta
+    total_channels: int
+    dates: list[date] = Field(..., description="Días de la ventana, del más reciente al más viejo")
+    rows: list[ChannelTypeStock]
+    totals_by_date: list[int] = Field(..., description="Total de canales con foto por día, alineado con `dates`")
+    latest_snapshot_date: date | None
+    latest_snapshot_count: int = Field(..., description="Canales activos con foto en `latest_snapshot_date`")
+    days_since_last_snapshot: int | None
+    last_fetched_at: datetime | None
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Seguimiento diario: canales trackeados + snapshots (worker diario)
 # ─────────────────────────────────────────────────────────────────────────
