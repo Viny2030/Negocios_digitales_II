@@ -160,6 +160,16 @@ async def guia_diagramas_en() -> FileResponse:
     return FileResponse(STATIC_DIR / "diagramas_en.html", media_type="text/html")
 
 
+@app.get("/guia/antifraude", tags=["docs"], summary="Antifraude y métricas nuevas (Español)", include_in_schema=False)
+async def guia_antifraude_es() -> FileResponse:
+    return FileResponse(STATIC_DIR / "antifraude.html", media_type="text/html")
+
+
+@app.get("/guia/en/antifraude", tags=["docs"], summary="Anti-fraud and new metrics (English)", include_in_schema=False)
+async def guia_antifraude_en() -> FileResponse:
+    return FileResponse(STATIC_DIR / "antifraude_en.html", media_type="text/html")
+
+
 @app.get("/", tags=["health"], summary="Health check")
 async def health_check() -> dict:
     return {

@@ -701,6 +701,7 @@
         <div class="inline-actions">
           <button type="button" class="ghost" id="manual-view-guia">Guía de uso y grafos</button>
           <button type="button" class="ghost" id="manual-view-metricas">Métricas</button>
+          <button type="button" class="ghost" id="manual-view-antifraude">Antifraude y métricas nuevas</button>
         </div>
         <div class="inline-actions">
           <button type="button" class="ghost" id="manual-lang-es">Español</button>
@@ -2500,7 +2501,7 @@
     const doc = frame.contentDocument;
     const style = doc.createElement("style");
     // Sin desplazamiento propio: lo hace la página, y por eso también sin scroll suave.
-    style.textContent = "html { overflow: hidden; scroll-behavior: auto; } body > header { display: none; } section { scroll-margin-top: 150px; }";
+    style.textContent = "html { overflow: hidden; scroll-behavior: auto; } body > header, nav.top { display: none; } section { scroll-margin-top: 150px; }";
     doc.head.appendChild(style);
     syncGuideTheme();
 
@@ -2534,16 +2535,19 @@
     const content = document.getElementById("manual-content");
     document.getElementById("manual-view-guia").classList.toggle("accent-violet", view === "guia");
     document.getElementById("manual-view-metricas").classList.toggle("accent-violet", view === "metricas");
+    document.getElementById("manual-view-antifraude").classList.toggle("accent-violet", view === "antifraude");
     document.getElementById("manual-lang-es").classList.toggle("accent-violet", lang === "es");
     document.getElementById("manual-lang-en").classList.toggle("accent-violet", lang === "en");
-    frame.style.display = view === "guia" ? "block" : "none";
-    content.style.display = view === "guia" ? "none" : "block";
+    frame.style.display = view === "metricas" ? "none" : "block";
+    content.style.display = view === "metricas" ? "block" : "none";
 
     if (view === "metricas") {
       loadManual(lang);
       return;
     }
-    const src = lang === "es" ? "/guia" : "/guia/en";
+    // La guía y el informe antifraude son páginas propias que se muestran en el mismo iframe.
+    const base = lang === "es" ? "/guia" : "/guia/en";
+    const src = view === "antifraude" ? `${base}/antifraude` : base;
     if (frame.getAttribute("src") !== src) {
       frame.setAttribute("src", src);
       return;
@@ -2575,6 +2579,7 @@
     document.getElementById("manual-lang-en").addEventListener("click", () => setManual({ lang: "en" }));
     document.getElementById("manual-view-guia").addEventListener("click", () => setManual({ view: "guia" }));
     document.getElementById("manual-view-metricas").addEventListener("click", () => setManual({ view: "metricas" }));
+    document.getElementById("manual-view-antifraude").addEventListener("click", () => setManual({ view: "antifraude" }));
     document.getElementById("guide-frame").addEventListener("load", prepareGuide);
     document.querySelector('nav.tabs button[data-tab="manual"]').addEventListener("click", () => setTimeout(fitGuide));
     new MutationObserver(syncGuideTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
