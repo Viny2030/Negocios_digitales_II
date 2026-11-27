@@ -61,9 +61,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RESUMEN_PATH: ${{ github.workspace }}/resumen.md
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
@@ -121,7 +121,7 @@ jobs:
 
       - name: Guardar la base para la próxima corrida
         if: env.USE_POSTGRES != 'true' && steps.foto.outputs.resultado == 'tomada'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: channel_analytics.db.gpg
