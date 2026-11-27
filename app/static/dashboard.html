@@ -392,6 +392,7 @@
     <button data-tab="canales">Por canal</button>
     <button data-tab="categorias">Por categoría</button>
     <button data-tab="tematicas">Por temática</button>
+    <button data-tab="audiencia">Audiencia</button>
     <button data-tab="benchmarks">Métricas del medio</button>
     <button data-tab="catalogo">Catálogo</button>
     <button data-tab="cuenta">Cuenta</button>
@@ -537,13 +538,33 @@
     </div>
   </section>
 
+  <section id="tab-audiencia" class="tab-panel">
+    <div class="card card-accent violet">
+      <h3>¿Son creíbles los números? Señales de audiencia inusual</h3>
+      <p class="card-sub">
+        Busca indicios públicos de seguidores o vistas infladas. <strong>Son indicios, no una prueba:</strong> con datos
+        públicos no se puede ver quién mira ni identificar bots. Antes de concluir algo, hay que pedirle al canal sus
+        estadísticas internas. Cómo se calcula cada señal: <a href="#" data-goto-tab="manual" data-manual-view="guia" data-guide-section="audiencia">guía de uso</a>.
+      </p>
+      <form id="audience-form" class="filter-row" style="margin-bottom:12px;">
+        <input type="text" id="audience-query" placeholder="Tema a revisar, por ejemplo: fitness" required maxlength="200" aria-label="Tema a revisar">
+        <select id="audience-platform" aria-label="Plataforma">
+          <option value="youtube">YouTube</option>
+          <option value="tiktok">TikTok</option>
+        </select>
+        <button type="submit" id="audience-btn">Revisar audiencia</button>
+      </form>
+      <div id="audience-result"><p class="empty-note">Escribí un tema para revisar sus canales.</p></div>
+    </div>
+  </section>
+
   <section id="tab-benchmarks" class="tab-panel">
     <div class="card card-accent yellow">
       <h3>Métricas y benchmarks del medio</h3>
       <p class="card-sub">
         Referencia de industria por plataforma (no depende de ninguna búsqueda) — fuente: <code>/api/v1/analytics/benchmarks</code>.
         Manual completo de todas las métricas (qué es cada campo, cómo se calcula, qué endpoint la devuelve):
-        pestaña <a href="#" data-goto-tab="manual">📖 Manual</a>, arriba.
+        pestaña <a href="#" data-goto-tab="manual" data-manual-view="metricas">📖 Manual</a>, arriba.
       </p>
       <div class="bench-grid" id="bench-grid"></div>
     </div>
@@ -677,14 +698,17 @@
   <section id="tab-manual" class="tab-panel">
     <div class="card card-accent yellow">
       <div class="filter-row" style="justify-content:space-between;">
-        <h3 style="margin:0;">Manual de métricas</h3>
         <div class="inline-actions">
-          <button type="button" class="ghost accent-violet" id="manual-lang-es">Español</button>
-          <button type="button" class="ghost accent-violet" id="manual-lang-en">English</button>
+          <button type="button" class="ghost" id="manual-view-guia">Guía de uso y grafos</button>
+          <button type="button" class="ghost" id="manual-view-metricas">Métricas</button>
+        </div>
+        <div class="inline-actions">
+          <button type="button" class="ghost" id="manual-lang-es">Español</button>
+          <button type="button" class="ghost" id="manual-lang-en">English</button>
         </div>
       </div>
-      <p class="card-sub">Qué es cada métrica, cómo se calcula y qué endpoint la devuelve — se lee acá mismo, sin salir del dashboard.</p>
-      <div id="manual-content" class="manual-content"><p class="empty-note">Cargando…</p></div>
+      <iframe id="guide-frame" title="Guía de uso con los grafos del sistema" style="display:block;width:100%;min-height:400px;margin-top:12px;border:0;border-radius:8px;"></iframe>
+      <div id="manual-content" class="manual-content" style="display:none;margin-top:12px;"><p class="empty-note">Cargando…</p></div>
     </div>
   </section>
 
@@ -1863,6 +1887,66 @@
   // ---------------------------------------------------------------------
   // Búsqueda principal
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // Audiencia: señales de audiencia inusual por canal
+  // ---------------------------------------------------------------------
+  const AUDIENCE_LEVELS = {
+    alta: { label: "Muchas señales", color: "var(--status-critical)" },
+    revisar: { label: "Para revisar", color: "var(--accent-yellow)" },
+    leve: { label: "Señal leve", color: "var(--text-secondary)" },
+    sin_senales: { label: "Sin señales", color: "var(--text-muted)" },
+    datos_insuficientes: { label: "Datos insuficientes", color: "var(--text-muted)" },
+  };
+
+  function renderAudience(data) {
+    const el = document.getElementById("audience-result");
+    if (!data.channels.length) {
+      el.innerHTML = `<p class="empty-note">No se encontraron canales para ese tema.</p>`;
+      return;
+    }
+    const conSenales = data.channels.filter(c => c.level === "alta" || c.level === "revisar").length;
+    const rows = data.channels.map(c => {
+      const level = AUDIENCE_LEVELS[c.level] || { label: c.level, color: "var(--text-muted)" };
+      const signals = c.signals.length
+        ? `<ul style="margin:0;padding-left:16px;">${c.signals.map(s => `<li><strong>${escapeHtml(s.label)}:</strong> ${escapeHtml(s.detail)}</li>`).join("")}</ul>`
+        : "—";
+      const missing = c.signals_unavailable.length
+        ? `<div style="color:var(--text-muted);font-size:11px;margin-top:4px;">Sin datos para: ${escapeHtml(c.signals_unavailable.join(", "))}</div>`
+        : "";
+      return `<tr>
+        <td>${escapeHtml(c.name)}</td>
+        <td>${fmtInt(c.followers)}</td>
+        <td><strong>${c.score}</strong></td>
+        <td style="color:${level.color};font-weight:600;white-space:nowrap;">${level.label}</td>
+        <td>${signals}${missing}</td>
+      </tr>`;
+    }).join("");
+    el.innerHTML = `
+      ${data.mock_data ? `<p class="anomaly-flag" style="margin:0 0 8px;">Datos simulados: no son canales reales.</p>` : ""}
+      <p class="card-sub">${conSenales} de ${data.total_evaluated} canales para revisar. ${escapeHtml(data.disclaimer)}</p>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Canal</th><th>Seguidores</th><th>Puntaje</th><th>Resultado</th><th>Qué se observó</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  document.getElementById("audience-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const el = document.getElementById("audience-result");
+    const button = document.getElementById("audience-btn");
+    const query = document.getElementById("audience-query").value.trim();
+    const platform = document.getElementById("audience-platform").value;
+    button.disabled = true;
+    el.innerHTML = `<p class="empty-note">Revisando…</p>`;
+    try {
+      renderAudience(await fetchJSON(`${API}/analytics/audience-integrity?query=${encodeURIComponent(query)}&platform=${platform}&limit=30`));
+    } catch (e) {
+      el.innerHTML = `<p style="color:var(--status-critical)">No se pudo revisar: ${escapeHtml(e.message)}</p>`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   async function runSearch(query, platforms, limit) {
     setBanner("loading", `Buscando "${query}"…`);
     document.getElementById("search-btn").disabled = true;
@@ -2386,9 +2470,92 @@
   }
 
   const manualCache = {};
-  async function loadManual(lang) {
+  const manualState = { view: "guia", lang: "es", pendingSection: null };
+
+  // Se llama también al abrir la pestaña: mientras está oculta, la guía no tiene altura.
+  function fitGuide() {
+    const frame = document.getElementById("guide-frame");
+    const body = frame.contentDocument && frame.contentDocument.body;
+    if (body && body.scrollHeight > 0) frame.style.height = `${body.scrollHeight}px`;
+  }
+
+  // La guía es una página propia (/guia): se muestra adentro con un iframe del mismo origen,
+  // sin su encabezado, con el tema del dashboard y a la altura de su contenido.
+  function syncGuideTheme() {
+    const doc = document.getElementById("guide-frame").contentDocument;
+    if (!doc) return;
+    const theme = document.documentElement.getAttribute("data-theme");
+    if (theme) doc.documentElement.setAttribute("data-theme", theme);
+    else doc.documentElement.removeAttribute("data-theme");
+  }
+
+  function showGuideSection(id) {
+    const doc = document.getElementById("guide-frame").contentDocument;
+    const target = doc && doc.getElementById(id);
+    if (target) target.scrollIntoView();
+  }
+
+  function prepareGuide() {
+    const frame = document.getElementById("guide-frame");
+    const doc = frame.contentDocument;
+    const style = doc.createElement("style");
+    // Sin desplazamiento propio: lo hace la página, y por eso también sin scroll suave.
+    style.textContent = "html { overflow: hidden; scroll-behavior: auto; } body > header { display: none; } section { scroll-margin-top: 150px; }";
+    doc.head.appendChild(style);
+    syncGuideTheme();
+
+    doc.querySelectorAll("a[href]").forEach(link => {
+      const href = link.getAttribute("href");
+      if (href.startsWith("#")) {
+        link.addEventListener("click", (e) => { e.preventDefault(); showGuideSection(href.slice(1)); });
+      } else if (href.startsWith("/manual/")) {
+        link.addEventListener("click", (e) => { e.preventDefault(); setManual({ view: "metricas" }); });
+      } else if (href === "/dashboard") {
+        link.target = "_top";
+      } else {
+        link.target = "_blank";
+        link.rel = "noopener";
+      }
+    });
+
+    new ResizeObserver(fitGuide).observe(doc.body);
+    fitGuide();
+
+    if (manualState.pendingSection) {
+      showGuideSection(manualState.pendingSection);
+      manualState.pendingSection = null;
+    }
+  }
+
+  function setManual(changes) {
+    Object.assign(manualState, changes);
+    const { view, lang } = manualState;
+    const frame = document.getElementById("guide-frame");
+    const content = document.getElementById("manual-content");
+    document.getElementById("manual-view-guia").classList.toggle("accent-violet", view === "guia");
+    document.getElementById("manual-view-metricas").classList.toggle("accent-violet", view === "metricas");
     document.getElementById("manual-lang-es").classList.toggle("accent-violet", lang === "es");
     document.getElementById("manual-lang-en").classList.toggle("accent-violet", lang === "en");
+    frame.style.display = view === "guia" ? "block" : "none";
+    content.style.display = view === "guia" ? "none" : "block";
+
+    if (view === "metricas") {
+      loadManual(lang);
+      return;
+    }
+    const src = lang === "es" ? "/guia" : "/guia/en";
+    if (frame.getAttribute("src") !== src) {
+      frame.setAttribute("src", src);
+      return;
+    }
+    fitGuide();
+    if (manualState.pendingSection) {
+      showGuideSection(manualState.pendingSection);
+      manualState.pendingSection = null;
+    }
+  }
+
+  async function loadManual(lang) {
     const contentEl = document.getElementById("manual-content");
     if (manualCache[lang]) { contentEl.innerHTML = manualCache[lang]; return; }
     contentEl.innerHTML = `<p class="empty-note">Cargando…</p>`;
@@ -2404,13 +2571,20 @@
   }
 
   function initManualTab() {
-    document.getElementById("manual-lang-es").addEventListener("click", () => loadManual("es"));
-    document.getElementById("manual-lang-en").addEventListener("click", () => loadManual("en"));
+    document.getElementById("manual-lang-es").addEventListener("click", () => setManual({ lang: "es" }));
+    document.getElementById("manual-lang-en").addEventListener("click", () => setManual({ lang: "en" }));
+    document.getElementById("manual-view-guia").addEventListener("click", () => setManual({ view: "guia" }));
+    document.getElementById("manual-view-metricas").addEventListener("click", () => setManual({ view: "metricas" }));
+    document.getElementById("guide-frame").addEventListener("load", prepareGuide);
+    document.querySelector('nav.tabs button[data-tab="manual"]').addEventListener("click", () => setTimeout(fitGuide));
+    new MutationObserver(syncGuideTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     // Links "pestaña 📖 Manual" desde otras secciones (p. ej. "Métricas del medio").
     document.querySelectorAll("[data-goto-tab]").forEach(link => {
       link.addEventListener("click", (e) => {
         e.preventDefault();
         document.querySelector(`nav.tabs button[data-tab="${link.getAttribute("data-goto-tab")}"]`).click();
+        const view = link.getAttribute("data-manual-view");
+        if (view) setManual({ view, pendingSection: link.getAttribute("data-guide-section") });
       });
     });
   }
@@ -2476,7 +2650,7 @@
   loadChannelTypes();
   loadTrackedChannels();
   loadCatalogSummary();
-  loadManual("es");
+  setManual({});
 
   // Sesión persistida (localStorage): si había un token guardado, validarlo
   // contra /auth/me y refrescar el estado de cuenta (plan, créditos, etc.).

@@ -76,3 +76,22 @@ def top_decile_share(values: list[float]) -> float:
 
     top_n = max(1, int(np.ceil(arr.size * 0.10)))
     return float(arr[:top_n].sum() / total)
+
+
+def lorenz_curve(values: list[float]) -> tuple[list[float], list[float]]:
+    """
+    Puntos de la curva de Lorenz: (pᵢ, Lᵢ) con pᵢ = i/n (proporción acumulada de canales,
+    del más chico al más grande) y Lᵢ = Σ_{j≤i} y_j / Σy (proporción acumulada de
+    seguidores). Incluye el origen (0, 0) y termina en (1, 1).
+
+    Es la representación gráfica del mismo dato que `gini_coefficient`:
+        G = 1 − 2 × (área bajo la curva, por trapecios)
+    — coincide exactamente con la fórmula de `gini_coefficient` (ver tests/test_lorenz.py).
+    """
+    arr = np.sort(np.clip(np.asarray(values, dtype=float), a_min=0, a_max=None))
+    total = float(arr.sum())
+    if arr.size == 0 or total <= 0:
+        raise InsufficientDataError("La curva de Lorenz requiere al menos un valor positivo.")
+    population = np.arange(0, arr.size + 1) / arr.size
+    cumulative = np.concatenate(([0.0], np.cumsum(arr) / total))
+    return population.tolist(), cumulative.tolist()

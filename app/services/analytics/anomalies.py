@@ -22,6 +22,15 @@ def detect_anomalies(channels: list[UnifiedChannel]) -> list[AnomalyFlag]:
             "Se necesitan al menos 4 canales para estimar cuartiles de forma confiable"
         )
 
+    # Sin esto, un canal cuyo engagement no se pudo medir (NER 0.0 = "no disponible") se
+    # marcaba como inflado por tener "engagement nulo". Import local: audience_integrity
+    # no depende de este módulo, pero sí de los mismos schemas.
+    from app.services.analytics.audience_integrity import ner_available
+
+    channels = [c for c in channels if ner_available(c)]
+    if len(channels) < 4:
+        return []
+
     followers = np.asarray([c.followers for c in channels], dtype=float)
     ner = np.asarray([c.normalized_er for c in channels], dtype=float)
 

@@ -46,6 +46,10 @@ class UnifiedChannel(BaseModel):
         "((likes + comentarios) / vistas de esos videos). None = no se pudo muestrear "
         "(NER no disponible para ese canal, no significa engagement cero).",
     )
+    recent_video_views: list[int] | None = Field(
+        None,
+        description="YouTube: vistas de cada video reciente muestreado. None = no se pudo muestrear.",
+    )
     tier: ContentTier
 
     is_mock: bool = Field(
@@ -266,6 +270,49 @@ class AnomalyResponse(BaseModel):
     platform: Platform
     flagged: list[AnomalyFlag]
     total_evaluated: int
+
+
+class AudienceSignal(BaseModel):
+    """Un indicio concreto, con el dato que lo dispara."""
+
+    code: str
+    label: str
+    points: int
+    detail: str
+
+
+class AudienceAssessment(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    universal_id: str
+    name: str
+    handle: str | None = None
+    url: str | None = None
+    platform: Platform
+    followers: int
+    score: int = Field(description="0 a 100. Mide cuánto conviene revisar el canal, no una probabilidad de fraude.")
+    level: str = Field(description="sin_senales | leve | revisar | alta | datos_insuficientes")
+    signals: list[AudienceSignal]
+    signals_evaluated: int = Field(description="Cuántas señales se pudieron calcular")
+    signals_unavailable: list[str] = Field(description="Señales sin datos: no cuentan a favor ni en contra")
+    is_mock: bool
+
+
+class AudienceIntegrityResponse(BaseModel):
+    meta: ExecutionMeta
+    platform: Platform
+    total_evaluated: int
+    channels: list[AudienceAssessment] = Field(description="De mayor a menor puntaje")
+    mock_data: bool
+    disclaimer: str
+
+
+class TrackedAudienceResponse(BaseModel):
+    meta: ExecutionMeta
+    tracked_channel_id: int
+    assessment: AudienceAssessment
+    snapshots_used: int
+    disclaimer: str
 
 
 # ─────────────────────────────────────────────────────────────────────────

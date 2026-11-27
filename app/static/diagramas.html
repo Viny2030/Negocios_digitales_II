@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel Analytics · Grafos técnicos del sistema</title>
+<style>
+:root { color-scheme: light dark; --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --card:#f6f8fa; --line:#d1d9e0; --accent:#0969da; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --card:#151b23; --line:#3d444d; --accent:#4493f8; } }
+:root[data-theme="dark"] { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --card:#151b23; --line:#3d444d; --accent:#4493f8; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width:1180px; margin:0 auto; padding:32px 20px 64px; }
+nav.top { display:flex; gap:16px; justify-content:space-between; font-size:14px; margin-bottom:24px; }
+a { color:var(--accent); }
+h1 { font-size:28px; margin:0 0 8px; }
+h2 { font-size:20px; margin:40px 0 6px; scroll-margin-top:16px; }
+p.lead, p.intro { color:var(--muted); margin:0 0 12px; }
+p.stance { border-left:3px solid var(--accent); padding:8px 12px; background:var(--card); border-radius:4px; }
+ol.toc { columns:2; font-size:15px; padding-left:20px; }
+figure { margin:12px 0 0; padding:16px; background:var(--card); border:1px solid var(--line); border-radius:8px; overflow-x:auto; }
+pre.mermaid { margin:0; font:13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; white-space:pre; }
+pre.mermaid[data-processed="true"] { display:flex; justify-content:center; white-space:normal; }
+p.offline { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<nav class="top"><a href="/guia">← Volver a la guía</a><a href="/guia/en/diagramas">English</a></nav>
+<h1>Grafos técnicos del sistema</h1>
+<p class="lead">Cómo funciona Channel Analytics por dentro: arquitectura, ingesta desde YouTube, motor de señales de audiencia, desigualdad digital, modelo de datos y despliegue. Cada nodo cita el archivo o la función real del repositorio.</p>
+<p class="stance">Las señales de audiencia marcan anomalías estadísticas públicas para que un anunciante o auditor las revise con prudencia. El sistema no detecta bots ni acusa a nadie.</p>
+<h2 id="contenido">Contenido</h2>
+<ol class="toc"><li><a href="#arquitectura">1. Arquitectura de software</a></li><li><a href="#ingesta">2. Pipeline de ingesta desde YouTube Data API</a></li><li><a href="#descubrimiento_worker">3. Descubrimiento, seguimiento y worker diario</a></li><li><a href="#senales">4. Motor de las 7 señales de audiencia</a></li><li><a href="#puntaje">5. Reglas de prudencia, puntaje 0 a 100 y nivel</a></li><li><a href="#desigualdad">6. Desigualdad digital: Gini, Lorenz, Pareto y correlaciones</a></li><li><a href="#datos">7. Modelo de datos</a></li><li><a href="#despliegue">8. Flujo de integración y despliegue</a></li></ol>
+<p class="offline">Si no ves los diagramas, el navegador no pudo cargar Mermaid: abajo queda su código fuente.</p>
+<section id="arquitectura">
+<h2>1. Arquitectura de software</h2>
+<p class="intro">Rutas FastAPI, dependencias de acceso, servicios, colectores y persistencia SQLite o PostgreSQL.</p>
+<figure><pre class="mermaid">
+flowchart TB
+  subgraph CLI["Clientes"]
+    DASH["GET /dashboard&lt;br/&gt;app/static/dashboard.html"]
+    GUIA["GET /guia · /guia/en&lt;br/&gt;/guia/diagramas"]
+    SWAG["GET /docs · /redoc&lt;br/&gt;Swagger y ReDoc"]
+    GHA["GitHub Actions&lt;br/&gt;ci.yml · daily-job.yml"]
+  end
+  subgraph APP["app/main.py · FastAPI con lifespan"]
+    LIFE["lifespan: production_safety_warnings&lt;br/&gt;init_db · start_scheduler"]
+    MW["CORSMiddleware&lt;br/&gt;consume_report_credit_on_success"]
+    DEPS["app/api/deps.py&lt;br/&gt;verify_admin_token · get_current_user&lt;br/&gt;require_full_access · require_premium"]
+    RL["app/core/rate_limit.py&lt;br/&gt;limit_auth_attempts · 60 s por IP"]
+    subgraph RUT["app/api/v1/router.py · prefijo /api/v1"]
+      AUTH["auth.py&lt;br/&gt;/auth/register · login · me · admin/set-plan"]
+      SEARCH["search.py&lt;br/&gt;/analyze · /channels/search · discover"]
+      STATS["statistics.py&lt;br/&gt;/analytics/benchmarks · distribution&lt;br/&gt;inequality · correlation · anomalies&lt;br/&gt;audience-integrity · overview"]
+      TRACK["tracking.py&lt;br/&gt;/tracking/channels · history&lt;br/&gt;audience-integrity · run-daily-job"]
+      CAT["catalog.py&lt;br/&gt;/catalog/types · summary"]
+      PREM["premium.py&lt;br/&gt;/premium/channels/id/projections&lt;br/&gt;recommendations"]
+    end
+  end
+  subgraph SRV["app/services"]
+    ORCH["orchestrator.py · Ingestion Hub&lt;br/&gt;fetch_unified_channels · discover_unified_channels&lt;br/&gt;enrich_engagement"]
+    COLL["collectors/base.py · youtube.py · tiktok.py&lt;br/&gt;BaseCollector · modo mock determinístico"]
+    NORM["analytics/normalizer.py&lt;br/&gt;RawChannelData a UnifiedChannel · NER"]
+    ANA["analytics/descriptive · inequality&lt;br/&gt;correlation · anomalies · benchmarks"]
+    AUD["analytics/audience_integrity.py&lt;br/&gt;assess_channel · 7 familias de señales"]
+    PRS["analytics/projections · recommendations"]
+    TCS["tracked_channels.py&lt;br/&gt;CRUD · upsert de snapshots · catálogo"]
+    USR["users.py&lt;br/&gt;create_user · set_user_plan"]
+    WRK["worker.py · run_daily_snapshot"]
+  end
+  SCHED["app/core/scheduler.py · AsyncIOScheduler UTC&lt;br/&gt;daily_channel_snapshot · auto_discovery"]
+  SEC["app/core/security.py&lt;br/&gt;bcrypt · PyJWT HS256"]
+  subgraph PER["app/db · SQLAlchemy 2 async"]
+    SESS["session.py · engine · init_db&lt;br/&gt;get_session · migraciones livianas"]
+    MOD["models.py · ChannelType · TrackedChannel&lt;br/&gt;ChannelMetricSnapshot · User"]
+    SQLITE[("SQLite · channel_analytics.db&lt;br/&gt;desarrollo local")]
+    PG[("PostgreSQL · producción Railway")]
+  end
+  YT(["YouTube Data API v3 · 10.000 u/día"])
+  TT(["TikTok Research API"])
+  CLI --&gt; MW --&gt; RUT
+  LIFE --&gt; SESS
+  LIFE --&gt; SCHED
+  RUT -.-&gt; DEPS
+  AUTH -.-&gt; RL
+  AUTH --&gt; USR
+  AUTH --&gt; SEC
+  DEPS --&gt; SEC
+  SEARCH --&gt; ORCH
+  STATS --&gt; ORCH
+  STATS --&gt; ANA
+  STATS --&gt; AUD
+  TRACK --&gt; TCS
+  TRACK --&gt; WRK
+  TRACK --&gt; AUD
+  CAT --&gt; TCS
+  PREM --&gt; PRS
+  PREM --&gt; TCS
+  ORCH --&gt; COLL
+  ORCH --&gt; NORM
+  COLL --&gt; YT
+  COLL --&gt; TT
+  SCHED --&gt; WRK
+  SCHED --&gt; TCS
+  WRK --&gt; COLL
+  WRK --&gt; TCS
+  TCS --&gt; SESS
+  USR --&gt; SESS
+  SESS --&gt; MOD
+  MOD --&gt; SQLITE
+  MOD --&gt; PG
+</pre></figure>
+</section>
+<section id="ingesta">
+<h2>2. Pipeline de ingesta desde YouTube Data API</h2>
+<p class="intro">Estrategia de dos pasos para cuidar la cuota diaria de 10.000 unidades y muestreo del NER.</p>
+<figure><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as Dashboard o cliente
+  participant API as search.py o statistics.py
+  participant O as orchestrator.py
+  participant Y as YouTubeCollector
+  participant G as YouTube Data API v3
+  participant N as normalizer.py
+  U-&gt;&gt;API: GET /channels/search o /analytics/... con query, platform y limit
+  API-&gt;&gt;O: fetch_unified_channels(query, platforms, limit)
+  O-&gt;&gt;O: resolve_platforms() y platform_available()
+  alt Sin YOUTUBE_API_KEY y con modo mock
+    O-&gt;&gt;Y: search() devuelve _mock_results(), semilla por query
+  else Con credenciales reales
+    O-&gt;&gt;Y: search(query, limit)
+    Y-&gt;&gt;G: search.list type=channel · 100 unidades
+    G--&gt;&gt;Y: IDs de canal
+    Y-&gt;&gt;G: channels.list snippet,statistics · lotes de 50 · 1 u por lote
+    Y-&gt;&gt;G: playlistItems.list de UU... · 1 u por canal
+    Y-&gt;&gt;G: videos.list statistics · lotes de 50 · 1 u por lote
+    Note over Y,G: _recent_engagement con N = YOUTUBE_ENGAGEMENT_RECENT_VIDEOS = 10&lt;br/&gt;cuesta cerca de 1,2 u por canal
+    opt Cuota agotada o error a mitad de camino
+      G--&gt;&gt;Y: 403 quotaExceeded
+      Y--&gt;&gt;O: búsqueda: QuotaExceededError · muestreo: canal sin _recent_engagement
+    end
+  end
+  Y--&gt;&gt;O: lista de RawChannelData
+  O-&gt;&gt;N: normalize_channels(raw, platform)
+  N--&gt;&gt;O: UnifiedChannel con NER, tier, recent_video_views e is_mock
+  O--&gt;&gt;API: channels_by_platform
+  API--&gt;&gt;U: JSON con meta, benchmark y avisos de datos simulados
+</pre></figure>
+</section>
+<section id="descubrimiento_worker">
+<h2>3. Descubrimiento, seguimiento y worker diario</h2>
+<p class="intro">De dónde salen los canales, cómo se guarda un snapshot por día y qué se puede leer sin gastar cuota.</p>
+<figure><pre class="mermaid">
+flowchart TB
+  subgraph DESC["Descubrimiento sin palabra clave · GET /channels/discover y /discover/by-category"]
+    D1["YouTubeCollector.discover()&lt;br/&gt;videos.list chart=mostPopular · 1 u por página"]
+    D2["15 categorías × 4 regiones AR, MX, ES, US&lt;br/&gt;× DISCOVER_PAGES_PER_REGION_CATEGORY = 2&lt;br/&gt;como máximo 120 u por corrida"]
+    D3["asyncio.Semaphore(HTTP_MAX_CONCURRENT_REQUESTS = 10)&lt;br/&gt;se corta al primer quotaExceeded y devuelve lo juntado"]
+    D4["Deduplicar channelId · channels.list en lotes de 50"]
+    D5["Ordenar por sort_by y recortar a limit"]
+    D6["enrich_engagement() solo sobre el resultado final&lt;br/&gt;la cuota extra es proporcional a lo devuelto"]
+    D1 --&gt; D2 --&gt; D3 --&gt; D4 --&gt; D5 --&gt; D6
+  end
+  subgraph ALTA["Alta al seguimiento"]
+    A1["POST /tracking/channels&lt;br/&gt;get_channel(identifier) y primer snapshot"]
+    A2["POST /tracking/discover-and-track&lt;br/&gt;round-robin entre categorías · tipo de canal automático"]
+  end
+  subgraph JOB["Worker diario · app/services/worker.py"]
+    W0["scheduler.py · CronTrigger UTC&lt;br/&gt;DAILY_JOB_HOUR_UTC = 9 · todos los días"]
+    W1["list_tracked(active_only=True)&lt;br/&gt;agrupar por plataforma"]
+    W2["get_channels_batch(): IDs UC en lote de 50 · 1 u&lt;br/&gt;handles con forHandle, uno por llamada"]
+    W3["normalize_channels() y _match_tracked()&lt;br/&gt;por native_id y, si no, por handle"]
+    W4["upsert del snapshot del día&lt;br/&gt;UNIQUE tracked_channel_id + snapshot_date"]
+    W5["DailyJobResult: evaluados, creados,&lt;br/&gt;actualizados y errores por canal"]
+    W0 --&gt; W1 --&gt; W2 --&gt; W3 --&gt; W4 --&gt; W5
+  end
+  subgraph LECT["Lectura sin gastar cuota"]
+    L1["GET /tracking/channels/id/history"]
+    L2["GET /tracking/channels/id/audience-integrity&lt;br/&gt;channel_from_snapshot() y assess_channel(snapshots)"]
+  end
+  NOTA["No hay caché HTTP de respuestas: /analytics/* recalcula en cada llamada.&lt;br/&gt;La memoria persistente del sistema es channel_metric_snapshots."]
+  D6 --&gt; A2
+  A1 --&gt; W1
+  A2 --&gt; W1
+  W4 --&gt; L1
+  W4 --&gt; L2
+  L2 -.- NOTA
+</pre></figure>
+</section>
+<section id="senales">
+<h2>4. Motor de las 7 señales de audiencia</h2>
+<p class="intro">Condición de disponibilidad, fórmula y puntos de cada señal. Una señal sin datos no cuenta a favor ni en contra.</p>
+<figure><pre class="mermaid">
+flowchart TD
+  IN["assess_channel(channel, cohort_flagged, snapshots)&lt;br/&gt;app/services/analytics/audience_integrity.py"] --&gt; CHK["check(disponible, nombre, cálculo)&lt;br/&gt;si la condición no se cumple: signals_unavailable&lt;br/&gt;no suma puntos y nunca cuenta como normal"]
+  CHK --&gt; C1{"S1 · ¿followers ≥ 1.000&lt;br/&gt;y total_posts ≥ 10?"}
+  CHK --&gt; C2{"S2 · ¿ner_available()?&lt;br/&gt;NER 0.0 sin muestreo = no medido"}
+  CHK --&gt; C3{"S3 · ¿followers ≥ 10.000, 3 o más videos&lt;br/&gt;y vistas por seguidor menos de 50?"}
+  CHK --&gt; C4{"S4 · ¿hay vistas recientes&lt;br/&gt;y me gusta o comentarios mayores a 0?"}
+  CHK --&gt; C5{"S5 · ¿5 o más videos recientes?"}
+  CHK --&gt; C6{"S6 · ¿hay cohorte de 4 o más canales?"}
+  CHK --&gt; C7{"S7 · ¿4 o más snapshots?"}
+  C1 -- sí --&gt; F1["r = total_views / followers&lt;br/&gt;r menor que 1: 35 pts · r menor que 3: 20 pts&lt;br/&gt;few_views_for_followers"]
+  C2 -- sí --&gt; F2["NER = interacciones / vistas × 100&lt;br/&gt;menos de 10 % del piso: 30 pts · menos de 25 %: 15 pts&lt;br/&gt;YouTube piso 1,5 %: umbrales 0,15 % y 0,375 %&lt;br/&gt;low_engagement"]
+  C3 -- sí --&gt; F3["s = mediana(vistas recientes) / followers × 100&lt;br/&gt;s menor que 0,5 %: 25 pts · s menor que 1,5 %: 12 pts&lt;br/&gt;few_recent_views"]
+  C4 -- sí --&gt; F4["likes / vistas recientes menor que 0,1 %: 20 pts · views_without_likes&lt;br/&gt;comments / likes menor que 0,2 %: 15 pts · likes_without_comments&lt;br/&gt;un 0 no cuenta: YouTube permite ocultar y desactivar"]
+  C5 -- sí --&gt; F5["máx ≥ 20 × mediana del resto: 10 pts&lt;br/&gt;isolated_view_spike · pesa poco a propósito"]
+  C6 -- sí --&gt; F6["detect_anomalies(): followers ≥ P75&lt;br/&gt;y NER menor que Q1 − 1,5 × IQR · 15 pts&lt;br/&gt;cohort_outlier · solo canales con NER medido"]
+  C7 -- sí --&gt; F7["cambio % entre fotos, normalizado por día&lt;br/&gt;cambios menores a 5 % se ignoran por redondeo de YouTube&lt;br/&gt;salto muy por encima del ritmo habitual: 30 pts&lt;br/&gt;40 pts si las vistas no acompañan&lt;br/&gt;caída de 5 % o más: 25 pts"]
+  F1 --&gt; SUM["signals · evaluated"]
+  F2 --&gt; SUM
+  F3 --&gt; SUM
+  F4 --&gt; SUM
+  F5 --&gt; SUM
+  F6 --&gt; SUM
+  F7 --&gt; SUM
+  SUM --&gt; NEXT["ver diagrama: puntaje y nivel"]
+</pre></figure>
+</section>
+<section id="puntaje">
+<h2>5. Reglas de prudencia, puntaje 0 a 100 y nivel</h2>
+<p class="intro">Tope por señal única, evidencia mínima y clasificación final.</p>
+<figure><pre class="mermaid">
+flowchart TD
+  A["signals: lista de AudienceSignal&lt;br/&gt;evaluated: señales calculables"] --&gt; B["score = min(Σ points, 100)"]
+  B --&gt; C{"¿se disparó una sola señal?"}
+  C -- sí --&gt; D["score = min(score, SINGLE_SIGNAL_CAP = 49)&lt;br/&gt;un único número nunca supera leve"]
+  C -- no --&gt; E["score sin cambios"]
+  D --&gt; L{"_level(score, evaluated, followers)"}
+  E --&gt; L
+  L -- "evaluated menor que 2 o followers menor que 1.000" --&gt; DI["datos_insuficientes"]
+  L -- "score menor que 25" --&gt; SS["sin_senales"]
+  L -- "25 a 49" --&gt; LV["leve"]
+  L -- "50 a 74" --&gt; RV["revisar"]
+  L -- "75 o más" --&gt; AL["alta"]
+  DI --&gt; OUT["AudienceAssessment&lt;br/&gt;score · level · signals con su detalle&lt;br/&gt;signals_unavailable · is_mock · DISCLAIMER"]
+  SS --&gt; OUT
+  LV --&gt; OUT
+  RV --&gt; OUT
+  AL --&gt; OUT
+  OUT --&gt; P["Postura del sistema: mide cuánto conviene revisar un canal.&lt;br/&gt;No detecta bots, no prueba fraude y no acusa a nadie."]
+</pre></figure>
+</section>
+<section id="desigualdad">
+<h2>6. Desigualdad digital: Gini, Lorenz, Pareto y correlaciones</h2>
+<p class="intro">Qué tan concentrada está la audiencia dentro de una búsqueda y cómo se relacionan las variables.</p>
+<figure><pre class="mermaid">
+flowchart LR
+  Q["GET /analytics/inequality&lt;br/&gt;GET /analytics/overview"] --&gt; F["fetch_unified_channels()&lt;br/&gt;platform=all solo usa plataformas disponibles"]
+  F --&gt; V["x = followers de cada canal"]
+  V --&gt; S["ordenar de menor a mayor · clip en 0&lt;br/&gt;n canales · total T = Σ x"]
+  S --&gt; G["gini_coefficient()&lt;br/&gt;G = (2 × Σ i·xᵢ − (n + 1) × T) / (n × T)&lt;br/&gt;0 igualdad · 1 concentración total"]
+  S --&gt; L["Curva de Lorenz&lt;br/&gt;pᵢ = i / n · Lᵢ = suma acumulada de xᵢ / T"]
+  L --&gt; GL["G = 1 − 2 × área bajo Lorenz por trapecios&lt;br/&gt;misma cifra que gini_coefficient()"]
+  V --&gt; PA["pareto_alpha()&lt;br/&gt;α = 1 + n / Σ ln(xᵢ / x_min)&lt;br/&gt;None sin variación suficiente"]
+  V --&gt; TD["top_decile_share()&lt;br/&gt;suma del top ⌈0,1 × n⌉ / T"]
+  G --&gt; IS["InequalityStats por plataforma"]
+  PA --&gt; IS
+  TD --&gt; IS
+  QC["GET /analytics/correlation&lt;br/&gt;una sola plataforma"] --&gt; PR["pares: total_posts con NER&lt;br/&gt;followers con NER"]
+  PR --&gt; CO["correlate(): scipy spearmanr y pearsonr&lt;br/&gt;NaN pasa a 0.0"]
+  CO --&gt; IN["_interpret(rho): fuerza y dirección&lt;br/&gt;Spearman es el coeficiente principal"]
+  IN --&gt; CP["CorrelationPair"]
+</pre></figure>
+</section>
+<section id="datos">
+<h2>7. Modelo de datos</h2>
+<p class="intro">Tablas de app/db/models.py. Idénticas en SQLite y PostgreSQL; las métricas son BIGINT.</p>
+<figure><pre class="mermaid">
+erDiagram
+  CHANNEL_TYPES ||--o{ TRACKED_CHANNELS : clasifica
+  TRACKED_CHANNELS ||--o{ CHANNEL_METRIC_SNAPSHOTS : "una foto por día"
+  CHANNEL_TYPES {
+    int id PK
+    string name UK "120"
+    string slug UK "140"
+    string description "500, opcional"
+    bool is_custom "false si es categoría de YouTube"
+    datetime created_at
+  }
+  TRACKED_CHANNELS {
+    int id PK
+    string platform "20 · youtube o tiktok"
+    string native_id "200 · UNIQUE con platform"
+    string handle "200"
+    string label "200"
+    string name "300"
+    string url "500"
+    bool active "baja lógica"
+    int channel_type_id FK "nullable"
+  }
+  CHANNEL_METRIC_SNAPSHOTS {
+    int id PK
+    int tracked_channel_id FK
+    date snapshot_date "UNIQUE con tracked_channel_id"
+    bigint followers
+    bigint total_views
+    bigint total_posts
+    bigint raw_interactions
+    float normalized_er
+    string tier "20"
+    datetime fetched_at
+  }
+  USERS {
+    int id PK
+    string email UK "255"
+    string hashed_password "bcrypt"
+    string plan "free, unica, mensual, premium"
+    datetime plan_active_until
+    int report_credits
+    datetime unica_access_until
+    bool is_admin
+  }
+</pre></figure>
+</section>
+<section id="despliegue">
+<h2>8. Flujo de integración y despliegue</h2>
+<p class="intro">Del entorno local en Windows a Railway, sin desplegar antes de tener los secretos cargados.</p>
+<figure><pre class="mermaid">
+flowchart LR
+  DEV["PyCharm en Windows&lt;br/&gt;.venv · SQLite · modo mock"] --&gt; PUSH["push a feature/audiencia-inflada"]
+  PUSH --&gt; CI["ci.yml: ruff check y pytest -q&lt;br/&gt;Python 3.11 · sin credenciales"]
+  CI -- verde --&gt; PR["PR número 1 hacia main"]
+  PR --&gt; MRG["merge a main"]
+  MRG --&gt; RW{"Railway: ¿Wait for CI activo&lt;br/&gt;y variables cargadas?"}
+  RW -- no --&gt; STOP["no desplegar todavía&lt;br/&gt;ADMIN_TOKEN · JWT_SECRET_KEY · YOUTUBE_API_KEY&lt;br/&gt;DATABASE_URL · CORS_ALLOWED_ORIGINS"]
+  RW -- sí --&gt; BLD["build con Dockerfile&lt;br/&gt;uvicorn --proxy-headers en $PORT"]
+  BLD --&gt; LS["lifespan: si APP_ENV=production y falta un secreto&lt;br/&gt;la app no arranca"]
+  LS --&gt; HC["healthcheck GET /&lt;br/&gt;1 réplica: el scheduler vive en el proceso"]
+  HC --&gt; PGB[("PostgreSQL de Railway&lt;br/&gt;respaldo externo con pg_dump")]
+</pre></figure>
+</section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.min.js" integrity="sha384-HHW54r639fK42Ip0coGF3mz8oSiGn0eEoWNTLs75X7H63pLSDBa0Tqs0RwGmLlXE" crossorigin="anonymous"></script>
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var forced = params.get("theme");
+    if (forced === "dark" || forced === "light") { document.documentElement.setAttribute("data-theme", forced); }
+    var attr = document.documentElement.getAttribute("data-theme");
+    var dark = attr ? attr === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: true, securityLevel: "strict", theme: dark ? "dark" : "default",
+        flowchart: { htmlLabels: true, useMaxWidth: true }, sequence: { useMaxWidth: true } });
+    }
+  })();
+</script>
+</body>
+</html>

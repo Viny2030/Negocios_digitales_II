@@ -372,6 +372,7 @@ class YouTubeCollector(BaseCollector):
                 "views": sum(int(s.get("viewCount", 0) or 0) for s in sampled),
                 "likes": sum(int(s.get("likeCount", 0) or 0) for s in sampled),
                 "comments": sum(int(s.get("commentCount", 0) or 0) for s in sampled),
+                "view_counts": [int(s.get("viewCount", 0) or 0) for s in sampled],
             }
         return result
 
@@ -409,6 +410,7 @@ class YouTubeCollector(BaseCollector):
         subs = int(rng.lognormvariate(10, 2.0))
         views = int(subs * rng.uniform(15, 120))
         videos = rng.randint(20, 1500)
+        subs, recent = self._mock_audience(label, subs)
         return {
             "id": identifier if not identifier.startswith("@") else f"UC_mock_{label}",
             "snippet": {"title": f"{label.title()} (tracked)", "customUrl": f"@{label}"},
@@ -418,7 +420,28 @@ class YouTubeCollector(BaseCollector):
                 "videoCount": str(videos),
                 "commentCount": str(int(views * rng.uniform(0.0005, 0.004))),
             },
+            "_recent_engagement": recent,
             "_mock": True,
+        }
+
+    def _mock_audience(self, key: str, subs: int) -> tuple[int, dict]:
+        """Actividad simulada de los últimos videos. Más o menos 1 de cada 7 canales simula
+        una audiencia inflada, para poder ver funcionar la detección sin credenciales. Usa su
+        propia semilla: no altera el resto de los datos simulados."""
+        rng = self._seeded_rng(f"{key}:audience")
+        inflated = rng.random() < 0.15
+        real_audience = subs
+        if inflated:
+            subs *= 25
+        view_counts = [max(int(real_audience * rng.uniform(0.03, 0.25)), 20) for _ in range(10)]
+        views = sum(view_counts)
+        likes_share, comments_share = (0.0005, 0.0002) if inflated else (rng.uniform(0.02, 0.04), rng.uniform(0.0005, 0.003))
+        return subs, {
+            "videos": len(view_counts),
+            "views": views,
+            "likes": int(views * likes_share),
+            "comments": int(views * comments_share),
+            "view_counts": view_counts,
         }
 
     def _mock_results(self, query: str, limit: int) -> list[RawChannelData]:
@@ -428,6 +451,7 @@ class YouTubeCollector(BaseCollector):
             subs = int(rng.lognormvariate(9, 2.2))  # distribución sesgada, realista
             views = int(subs * rng.uniform(15, 120))
             videos = rng.randint(20, 1500)
+            subs, recent = self._mock_audience(f"{query}:{i}", subs)
             mocked.append({
                 "id": f"UC_mock_{query.replace(' ', '_')}_{i}",
                 "snippet": {
@@ -441,6 +465,7 @@ class YouTubeCollector(BaseCollector):
                     "videoCount": str(videos),
                     "commentCount": str(int(views * rng.uniform(0.0005, 0.004))),
                 },
+                "_recent_engagement": recent,
                 "_mock": True,
             })
         return mocked

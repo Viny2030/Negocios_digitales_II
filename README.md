@@ -146,6 +146,8 @@ hasta que exista una URL pública, ver "Deploy en Railway").
 | GET | `/api/v1/analytics/inequality?query=&limit=` | Coeficiente de Gini, exponente de Pareto y participación del top 10%, comparando YouTube vs TikTok |
 | GET | `/api/v1/analytics/correlation?query=&platform=youtube\|tiktok&limit=` | Spearman/Pearson: publicaciones vs. engagement, seguidores vs. engagement |
 | GET | `/api/v1/analytics/anomalies?query=&platform=youtube\|tiktok&limit=` | Detección de cuentas con métricas potencialmente infladas |
+| GET | `/api/v1/analytics/audience-integrity?query=&platform=youtube\|tiktok&limit=` | **Señales de audiencia inusual** por canal: puntaje de 0 a 100, nivel y el dato que dispara cada señal. Son indicios, no prueba de bots o compra de audiencia |
+| GET | `/api/v1/tracking/channels/{tracked_id}/audience-integrity` | Las mismas señales para un canal trackeado, sumando saltos y caídas de su historial, sin gastar cuota de la API |
 | GET | `/api/v1/analytics/overview?query=&limit=` | **Todo-en-uno**: distribución + desigualdad + correlación + anomalías + benchmark, para YouTube y TikTok, en una sola respuesta |
 | POST | `/api/v1/tracking/channels` | Alta de un canal al seguimiento (`{platform, identifier, label?, channel_type_id?, channel_type_name?}`) — resuelve el canal contra la API/mock y toma su primer snapshot de una |
 | POST | `/api/v1/tracking/discover-and-track?platform=&total_limit=&sort_by=` | **Alta masiva**: descubre canales reales de todos los temas (como `/channels/discover/by-category`) y trackea hasta `total_limit` de una sola vez, repartidos entre categorías, con su tipo de canal asignado solo |
@@ -176,6 +178,8 @@ hasta que exista una URL pública, ver "Deploy en Railway").
 Cada plataforma trae una ficha de referencia de industria (`/analytics/benchmarks`) con el rango típico de Engagement Rate publicado (YouTube 1.5%–3.5%, TikTok 4.0%–9.0%), su fórmula, métrica de retención, frecuencia de publicación esperable, vida útil del contenido y el riesgo de sesgo conocido en sus métricas crudas. Los endpoints que calculan un ER promedio (`/analyze`, `/channels/search`, `/analytics/distribution`, `/analytics/overview`) adjuntan automáticamente un objeto `benchmark` que indica si ese promedio cae **"below"**, **"within"** o **"above"** del rango de industria, y qué tan lejos (`delta_from_range_pct`).
 
 > **Engagement de YouTube**: la API pública ya no devuelve likes ni comentarios a nivel canal (`commentCount` está deprecado), así que el NER de YouTube se calcula sobre los **últimos videos subidos** de cada canal: (likes + comentarios) / vistas de esos videos — la misma fórmula del benchmark de industria. `YOUTUBE_ENGAGEMENT_RECENT_VIDEOS` (10 por default, 0 = desactivado) controla cuántos videos se muestrean; cuesta ~1,2 unidades de cuota por canal y solo se hace para los canales que se devuelven o se guardan (no para todos los candidatos del trending). Si no se pudo muestrear un canal, `engagement_videos_sampled` viene en `null` y su NER no está disponible. Cada canal trae además `is_mock` (y cada resumen `mock_data`) para no confundir datos simulados con reales.
+
+🕸️ **Guía de uso con los grafos de funcionamiento y de información**: `/guia` (español) · `/guia/en` (English). Se genera con `python -m scripts.generar_guia`.
 
 📖 **Manual completo de métricas** (qué es cada campo, cómo se calcula, qué endpoint la devuelve): [`docs/manual_metricas_es.md`](./docs/manual_metricas_es.md) · **Full metrics manual** (English): [`docs/manual_metricas_en.md`](./docs/manual_metricas_en.md)
 

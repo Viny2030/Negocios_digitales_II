@@ -88,6 +88,38 @@ de seguidores/vistas, **no una prueba definitiva** (también puede pasar con
 canales legítimos de nicho muy pasivo, o por la limitación de YouTube de no
 exponer likes agregados).
 
+Un canal cuyo engagement no se pudo medir no se evalúa con esta regla: un NER
+"no disponible" no es engagement nulo.
+
+### Señales de audiencia inusual
+
+Endpoints: `GET /analytics/audience-integrity` (canales de una búsqueda) y
+`GET /tracking/channels/{id}/audience-integrity` (un canal seguido, con su
+historial). Combinan la regla anterior con otras señales públicas y devuelven
+un puntaje de 0 a 100 que mide **cuánto conviene revisar el canal**, no una
+probabilidad de fraude.
+
+| Señal (`code`) | Qué mira | Puntos |
+|---|---|---|
+| `few_views_for_followers` | Menos de 3 vistas históricas por seguidor (menos de 1 pesa más) | 20 o 35 |
+| `low_engagement` | Interacción por debajo de 25% del piso de la plataforma (por debajo de 10% pesa más) | 15 o 30 |
+| `few_recent_views` | Un video reciente típico llega a menos de 1,5% de los seguidores (menos de 0,5% pesa más). No aplica con 50 o más vistas históricas por seguidor | 12 o 25 |
+| `views_without_likes` | Menos de 0,1% de me gusta sobre las vistas recientes | 20 |
+| `likes_without_comments` | Menos de 0,2% de comentarios sobre los me gusta | 15 |
+| `isolated_view_spike` | Un video con 20 veces las vistas típicas del resto | 10 |
+| `cohort_outlier` | La regla de arriba, dentro de su búsqueda | 15 |
+| `follower_jump` | Salto de 5% o más, muy por encima del ritmo habitual del canal (pesa más si las vistas no acompañan) | 30 o 40 |
+| `follower_drop` | Caída de 5% o más entre dos fotos | 25 |
+
+Resultado (`level`): `sin_senales` (menos de 25), `leve` (25 a 49), `revisar`
+(50 a 74), `alta` (75 o más) y `datos_insuficientes` (menos de 2 señales
+calculadas, o menos de 1.000 seguidores). **Una sola señal nunca supera `leve`.** Los umbrales son criterios
+de partida: todavía no se validaron contra canales reales con fraude comprobado.
+
+**Qué no puede ver:** usuarios únicos, tiempo de visualización, origen del
+tráfico ni cuentas individuales. Esos datos solo los tiene el dueño del canal,
+así que esto no identifica bots ni prueba una compra de audiencia.
+
 ## 7. Benchmarks de industria (referencia por plataforma)
 
 Endpoint: `GET /analytics/benchmarks`. Son valores de referencia

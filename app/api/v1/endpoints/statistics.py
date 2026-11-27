@@ -27,6 +27,7 @@ from app.models.domain import Platform
 from app.models.schemas import (
     AnomalyFlag,
     AnomalyResponse,
+    AudienceIntegrityResponse,
     BenchmarkResponse,
     CorrelationResponse,
     DistributionResponse,
@@ -37,6 +38,7 @@ from app.models.schemas import (
     PlatformOverview,
 )
 from app.services.analytics.anomalies import detect_anomalies
+from app.services.analytics.audience_integrity import DISCLAIMER, assess_channel
 from app.services.analytics.benchmarks import compare_to_benchmark, get_benchmarks
 from app.services.analytics.correlation import correlate
 from app.services.analytics.descriptive import describe
@@ -237,6 +239,40 @@ async def anomalies(
         platform=platform,
         flagged=flagged,
         total_evaluated=len(channels),
+    )
+
+
+@router.get(
+    "/audience-integrity",
+    response_model=AudienceIntegrityResponse,
+    summary="Señales de audiencia inusual por canal (indicios, no prueba de bots o compra)",
+    dependencies=[Depends(require_full_access)],
+)
+async def audience_integrity(
+    query: str = Query(..., min_length=1, max_length=200),
+    platform: Platform = Query(..., description="youtube | tiktok"),
+    limit: int = Query(settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT),
+) -> AudienceIntegrityResponse:
+    start = time.perf_counter()
+    platform = _require_single_platform(platform, "/analytics/audience-integrity")
+
+    channels_by_platform = await fetch_unified_channels(query=query, platforms=[platform], limit=limit)
+    channels = channels_by_platform.get(platform, [])
+    cohort_flagged = {f.universal_id for f in detect_anomalies(channels)} if len(channels) >= 4 else None
+    assessments = sorted(
+        (assess_channel(c, cohort_flagged=cohort_flagged) for c in channels),
+        key=lambda a: a.score,
+        reverse=True,
+    )
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    return AudienceIntegrityResponse(
+        meta=ExecutionMeta(query=query, platforms_requested=[platform], response_time_ms=round(elapsed_ms, 2)),
+        platform=platform,
+        total_evaluated=len(channels),
+        channels=assessments,
+        mock_data=any(c.is_mock for c in channels),
+        disclaimer=DISCLAIMER,
     )
 
 
