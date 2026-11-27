@@ -13,8 +13,10 @@
 #     artifact CIFRADO. El repo es público y cualquier usuario logueado de GitHub puede bajar sus
 #     artifacts, por eso se cifra con gpg (AES256) usando el secret DB_PASSPHRASE. Cada corrida
 #     baja el último artifact, toma la foto y sube la base nueva; si la foto falla no sube nada y
-#     el artifact anterior sigue siendo el último. La primera corrida arranca de
-#     bootstrap/channel_analytics.db.gpg (copia cifrada de la base local).
+#     el artifact anterior sigue siendo el último. Si no hubiera ningún artifact vigente (se
+#     vencen a los 90 días sin corridas exitosas), el workflow no arranca con una base vacía:
+#     correr scripts/configurar_actions.ps1, que deja una copia cifrada de la base local en
+#     bootstrap/channel_analytics.db.gpg, y commitearla para que la próxima corrida parta de ahí.
 #   - Con Postgres: cargar el secret DATABASE_URL (la URL de Railway) y migrar el histórico con
 #     scripts/migrar_sqlite_a_postgres.py. Desde ahí se escribe directo en Postgres y se saltean
 #     los pasos del artifact, sin cambiar este archivo.
