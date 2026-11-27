@@ -137,6 +137,14 @@ async def upsert_snapshot_from_channel(
     job dos veces el mismo día (p. ej. a mano, para probar) es seguro.
     """
     snap_date = snapshot_date or date.today()
+
+    # El país declarado viaja en la misma respuesta de la API: se refresca en cada foto, sin cuota
+    # extra. Un canal que deja de declararlo conserva el último conocido.
+    if channel.country:
+        tracked = await session.get(TrackedChannel, tracked_channel_id)
+        if tracked is not None and tracked.country != channel.country:
+            tracked.country = channel.country
+
     stmt = select(ChannelMetricSnapshot).where(
         ChannelMetricSnapshot.tracked_channel_id == tracked_channel_id,
         ChannelMetricSnapshot.snapshot_date == snap_date,
@@ -281,11 +289,40 @@ async def catalog_summary(session: AsyncSession) -> dict:
     return {"total": total, "by_type": by_type}
 
 
-async def catalog_stock(session: AsyncSession, days: int = 14, today: date | None = None) -> dict:
+NO_COUNTRY = "none"
+
+
+def _country_filter(country: str | None):
+    """Condición sobre `TrackedChannel.country`: None = sin filtro, "none" = sin país declarado."""
+    if country is None:
+        return TrackedChannel.active.is_(True)
+    if country == NO_COUNTRY:
+        return TrackedChannel.country.is_(None)
+    return TrackedChannel.country == country.upper()
+
+
+async def stock_by_country(session: AsyncSession) -> list[dict]:
+    """Canales ACTIVOS por país declarado, de mayor a menor; los sin país van al final."""
+    stmt = (
+        select(TrackedChannel.country, func.count())
+        .where(TrackedChannel.active.is_(True))
+        .group_by(TrackedChannel.country)
+    )
+    rows = [{"country": country, "channel_count": count} for country, count in (await session.execute(stmt)).all()]
+    rows.sort(key=lambda r: (r["country"] is None, -r["channel_count"], r["country"] or ""))
+    return rows
+
+
+async def catalog_stock(
+    session: AsyncSession, days: int = 14, today: date | None = None, country: str | None = None,
+) -> dict:
     """
     Stock de canales ACTIVOS por tipo de canal y cuántos de ellos tienen foto (snapshot) en cada
     uno de los últimos `days` días calendario — la pestaña "Actualización" del dashboard. Los días
     sin corrida del job aparecen con 0 a propósito: el hueco es justamente lo que hay que ver.
+
+    `country` filtra todo por país declarado ("AR", o "none" para los que no declaran país);
+    `by_country` se calcula siempre sobre todos los canales, para poder comparar.
 
     `today` usa `date.today()` por default, igual que `upsert_snapshot_from_channel` al fechar las
     fotos, para que "hoy" signifique lo mismo en los dos lados.
@@ -293,13 +330,25 @@ async def catalog_stock(session: AsyncSession, days: int = 14, today: date | Non
     today = today or date.today()
     dates = [today - timedelta(days=offset) for offset in range(days)]
     window_start = dates[-1]
+    in_country = _country_filter(country)
 
-    summary = await catalog_summary(session)
+    types = await list_channel_types(session)
+    type_counts_stmt = (
+        select(TrackedChannel.channel_type_id, func.count())
+        .where(TrackedChannel.active.is_(True), in_country)
+        .group_by(TrackedChannel.channel_type_id)
+    )
+    counts_by_type: dict[int | None, int] = dict((await session.execute(type_counts_stmt)).all())
+    types_by_id = {t.id: t for t in types}
+    by_type = sorted(
+        ({"channel_type": types_by_id.get(type_id), "channel_count": n} for type_id, n in counts_by_type.items()),
+        key=lambda r: r["channel_count"], reverse=True,
+    )
 
     active_snapshots = (
         select(TrackedChannel.channel_type_id, ChannelMetricSnapshot.snapshot_date)
         .join(ChannelMetricSnapshot, ChannelMetricSnapshot.tracked_channel_id == TrackedChannel.id)
-        .where(TrackedChannel.active.is_(True))
+        .where(TrackedChannel.active.is_(True), in_country)
         .subquery()
     )
     window_stmt = (
@@ -319,16 +368,14 @@ async def catalog_stock(session: AsyncSession, days: int = 14, today: date | Non
     last_fetched_stmt = (
         select(func.max(ChannelMetricSnapshot.fetched_at))
         .join(TrackedChannel, ChannelMetricSnapshot.tracked_channel_id == TrackedChannel.id)
-        .where(TrackedChannel.active.is_(True))
+        .where(TrackedChannel.active.is_(True), in_country)
     )
     last_fetched_at = (await session.execute(last_fetched_stmt)).scalar_one_or_none()
 
     rows = []
-    for row in summary["by_type"]:
+    for row in by_type:
         channel_type = row["channel_type"]
         type_id = channel_type.id if channel_type else None
-        if row["channel_count"] == 0:
-            continue
         rows.append({
             "channel_type": channel_type,
             "channel_count": row["channel_count"],
@@ -345,7 +392,9 @@ async def catalog_stock(session: AsyncSession, days: int = 14, today: date | Non
         )
         latest_count = (await session.execute(latest_count_stmt)).scalar_one()
     return {
-        "total": summary["total"],
+        "country_filter": country.upper() if country and country != NO_COUNTRY else country,
+        "by_country": await stock_by_country(session),
+        "total": sum(r["channel_count"] for r in rows),
         "dates": dates,
         "rows": rows,
         "totals_by_date": [sum(r["snapshots_by_date"][i] for r in rows) for i in range(len(dates))],

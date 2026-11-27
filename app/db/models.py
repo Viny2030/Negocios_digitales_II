@@ -78,6 +78,10 @@ class TrackedChannel(Base):
     # trackeados antes de agregar este campo (ver migración liviana en
     # `db/session.py::init_db`).
     channel_type_id: Mapped[int | None] = mapped_column(ForeignKey("channel_types.id"), nullable=True)
+    # País declarado por el dueño del canal (ISO 3166-1 alfa-2, p. ej. "AR"), tal como lo devuelve
+    # `snippet.country` de YouTube. Es opcional en YouTube: None = el canal no declara país. Se
+    # actualiza en cada foto (ver `upsert_snapshot_from_channel`), sin cuota extra.
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
 
     snapshots: Mapped[list["ChannelMetricSnapshot"]] = relationship(
         back_populates="tracked_channel", cascade="all, delete-orphan", order_by="ChannelMetricSnapshot.snapshot_date"

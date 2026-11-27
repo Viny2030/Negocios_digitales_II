@@ -25,6 +25,9 @@ class UnifiedChannel(BaseModel):
     name: str
     handle: str | None = Field(None, description="@usuario / nombre corto público")
     url: str | None = None
+    country: str | None = Field(
+        None, description="País declarado por el canal (ISO 3166-1 alfa-2, p. ej. 'AR'). None = no declara país.",
+    )
 
     # --- Métricas de inventario / audiencia ---
     followers: int = Field(..., ge=0, description="Suscriptores (YouTube) o seguidores (TikTok)")
@@ -401,10 +404,23 @@ class ChannelTypeStock(BaseModel):
     snapshots_by_date: list[int] = Field(..., description="Canales con foto por día, alineado con `dates`")
 
 
+class CountryCount(BaseModel):
+    """Cuántos canales activos declaran un país dado (None = no declaran país)."""
+
+    country: str | None = Field(None, description="ISO 3166-1 alfa-2; None = canales sin país declarado")
+    channel_count: int
+
+
 class CatalogStockResponse(BaseModel):
     """Respuesta de GET /api/v1/catalog/stock — stock por tipo y actualización diaria."""
 
     meta: ExecutionMeta
+    country_filter: str | None = Field(
+        None, description="País por el que se filtró la tabla ('none' = sin país declarado); None = todos",
+    )
+    by_country: list[CountryCount] = Field(
+        ..., description="Stock de canales activos por país, siempre sobre TODOS los canales (no se filtra)",
+    )
     total_channels: int
     dates: list[date] = Field(..., description="Días de la ventana, del más reciente al más viejo")
     rows: list[ChannelTypeStock]
@@ -461,6 +477,7 @@ class TrackedChannelOut(BaseModel):
     label: str | None = None
     name: str | None = None
     url: str | None = None
+    country: str | None = Field(None, description="País declarado por el canal (ISO alfa-2). None = no declara.")
     active: bool
     created_at: datetime
     latest_snapshot: ChannelSnapshotOut | None = None

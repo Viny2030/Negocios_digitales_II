@@ -125,6 +125,7 @@ async def init_db() -> None:
         await _migrate_add_channel_type_column(conn)
         await _migrate_metric_columns_to_bigint(conn)
         await _add_column_if_missing(conn, "users", "unica_access_until", "TIMESTAMP")
+        await _add_column_if_missing(conn, "tracked_channels", "country", "VARCHAR(2)")
     await _seed_default_channel_types()
 
 

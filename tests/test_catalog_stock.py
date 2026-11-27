@@ -34,11 +34,11 @@ async def _seed(session):
     await session.flush()
 
     channels = [
-        TrackedChannel(platform="youtube", native_id="UC_g1", channel_type_id=gaming.id),
-        TrackedChannel(platform="youtube", native_id="UC_g2", channel_type_id=gaming.id),
-        TrackedChannel(platform="youtube", native_id="UC_m1", channel_type_id=music.id),
+        TrackedChannel(platform="youtube", native_id="UC_g1", channel_type_id=gaming.id, country="AR"),
+        TrackedChannel(platform="youtube", native_id="UC_g2", channel_type_id=gaming.id, country="AR"),
+        TrackedChannel(platform="youtube", native_id="UC_m1", channel_type_id=music.id, country="MX"),
         TrackedChannel(platform="youtube", native_id="UC_none"),
-        TrackedChannel(platform="youtube", native_id="UC_baja", channel_type_id=gaming.id, active=False),
+        TrackedChannel(platform="youtube", native_id="UC_baja", channel_type_id=gaming.id, active=False, country="AR"),
     ]
     session.add_all(channels)
     await session.flush()
@@ -151,3 +151,42 @@ def test_endpoint_stock(client):
 @pytest.mark.parametrize("days", [0, 91])
 def test_endpoint_valida_la_ventana(client, days):
     assert client.get("/api/v1/catalog/stock", params={"days": days}).status_code == 422
+
+
+async def test_stock_por_pais_siempre_sobre_todos(session):
+    stock = await catalog_stock(session, days=4, today=TODAY, country="ar")
+    assert stock["country_filter"] == "AR"
+    # El dado de baja no cuenta; los sin país van al final.
+    assert stock["by_country"] == [
+        {"country": "AR", "channel_count": 2},
+        {"country": "MX", "channel_count": 1},
+        {"country": None, "channel_count": 1},
+    ]
+
+
+async def test_filtro_por_pais(session):
+    stock = await catalog_stock(session, days=4, today=TODAY, country="AR")
+    assert stock["total"] == 2
+    assert [r["channel_type"].name for r in stock["rows"]] == ["Gaming"]
+    assert stock["totals_by_date"] == [2, 1, 0, 1]
+    assert stock["latest_snapshot_count"] == 2
+
+
+async def test_filtro_sin_pais(session):
+    stock = await catalog_stock(session, days=4, today=TODAY, country="none")
+    assert stock["country_filter"] == "none"
+    assert stock["total"] == 1
+    assert stock["rows"][0]["channel_type"] is None
+    assert stock["latest_snapshot_date"] == date(2026, 11, 24)
+
+
+def test_endpoint_filtra_por_pais(client):
+    data = client.get("/api/v1/catalog/stock", params={"days": 4, "country": "MX"}).json()
+    assert data["country_filter"] == "MX"
+    assert data["total_channels"] == 1
+    assert len(data["by_country"]) == 3
+
+
+@pytest.mark.parametrize("country", ["ARG", "1A", "todos"])
+def test_endpoint_valida_el_pais(client, country):
+    assert client.get("/api/v1/catalog/stock", params={"country": country}).status_code == 422
