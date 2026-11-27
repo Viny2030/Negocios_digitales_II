@@ -70,6 +70,13 @@ def production_frequency_index(monthly_posts: float, interval_std_dev_days: floa
 # 2. Normalización YouTube -> UnifiedChannel
 # ─────────────────────────────────────────────────────────────────────────
 
+def _country_code(value) -> str | None:
+    """`snippet.country` de YouTube: código ISO alfa-2 opcional. Cualquier otra cosa cuenta como sin país."""
+    if isinstance(value, str) and len(value.strip()) == 2 and value.strip().isalpha():
+        return value.strip().upper()
+    return None
+
+
 def normalize_youtube_channel(raw: RawChannelData) -> UnifiedChannel:
     snippet = raw.get("snippet", {})
     stats = raw.get("statistics", {})
@@ -116,6 +123,7 @@ def normalize_youtube_channel(raw: RawChannelData) -> UnifiedChannel:
         name=snippet.get("title", "Unknown"),
         handle=snippet.get("customUrl"),
         url=f"https://www.youtube.com/channel/{native_id}" if native_id else None,
+        country=_country_code(snippet.get("country")),
         followers=subscribers,
         total_views=views,
         total_posts=videos,

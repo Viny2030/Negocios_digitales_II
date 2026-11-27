@@ -413,7 +413,7 @@ class YouTubeCollector(BaseCollector):
         subs, recent = self._mock_audience(label, subs)
         return {
             "id": identifier if not identifier.startswith("@") else f"UC_mock_{label}",
-            "snippet": {"title": f"{label.title()} (tracked)", "customUrl": f"@{label}"},
+            "snippet": {"title": f"{label.title()} (tracked)", "customUrl": f"@{label}", **self._mock_country(label)},
             "statistics": {
                 "subscriberCount": str(subs),
                 "viewCount": str(views),
@@ -423,6 +423,17 @@ class YouTubeCollector(BaseCollector):
             "_recent_engagement": recent,
             "_mock": True,
         }
+
+    # Países simulados, con Argentina más frecuente y algunos canales sin país declarado (como en
+    # YouTube real, donde el campo es opcional).
+    _MOCK_COUNTRIES = ("AR", "AR", "AR", "MX", "ES", "US", "CO", None)
+
+    @classmethod
+    def _mock_country(cls, key: str) -> dict:
+        """`snippet.country` simulado. Sale de un hash del nombre y no del RNG del canal, para no
+        alterar el resto de los datos simulados."""
+        country = cls._MOCK_COUNTRIES[sum(map(ord, key)) % len(cls._MOCK_COUNTRIES)]
+        return {"country": country} if country else {}
 
     def _mock_audience(self, key: str, subs: int) -> tuple[int, dict]:
         """Actividad simulada de los últimos videos. Más o menos 1 de cada 7 canales simula
@@ -458,6 +469,7 @@ class YouTubeCollector(BaseCollector):
                     "title": f"{query.title()} Channel {i+1}",
                     "customUrl": f"@{query.replace(' ', '')}{i+1}",
                     "description": f"Canal mock generado para la búsqueda '{query}'.",
+                    **self._mock_country(f"{query}:{i}"),
                 },
                 "statistics": {
                     "subscriberCount": str(subs),

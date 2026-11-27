@@ -30,6 +30,7 @@ from app.models.schemas import (
     ChannelTypeListResponse,
     ChannelTypeOut,
     ChannelTypeStock,
+    CountryCount,
     ExecutionMeta,
     SetChannelTypeRequest,
     TrackedChannelOut,
@@ -109,6 +110,10 @@ async def get_catalog_summary(session: AsyncSession = Depends(get_session)) -> C
 )
 async def get_catalog_stock(
     days: int = Query(14, ge=1, le=90, description="Días calendario hacia atrás, contando hoy"),
+    country: str | None = Query(
+        None, pattern=r"^([A-Za-z]{2}|none)$",
+        description="Filtrar por país declarado (ISO alfa-2, p. ej. AR), o 'none' para los que no declaran país",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> CatalogStockResponse:
     """
@@ -117,10 +122,12 @@ async def get_catalog_stock(
     en 0 indica que el job diario no corrió. Lee solo la base: no gasta cuota de la API.
     """
     start = time.perf_counter()
-    stock = await catalog_stock(session, days=days)
+    stock = await catalog_stock(session, days=days, country=country)
     elapsed_ms = (time.perf_counter() - start) * 1000
     return CatalogStockResponse(
         meta=ExecutionMeta(response_time_ms=round(elapsed_ms, 2)),
+        country_filter=stock["country_filter"],
+        by_country=[CountryCount(**row) for row in stock["by_country"]],
         total_channels=stock["total"],
         dates=stock["dates"],
         rows=[

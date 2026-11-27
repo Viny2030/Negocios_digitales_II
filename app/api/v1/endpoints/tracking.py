@@ -78,7 +78,7 @@ async def _tracked_out(session: AsyncSession, tracked) -> TrackedChannelOut:
     )
     return TrackedChannelOut(
         id=tracked.id, platform=tracked.platform, native_id=tracked.native_id, handle=tracked.handle,
-        label=tracked.label, name=tracked.name, url=tracked.url, active=tracked.active,
+        label=tracked.label, name=tracked.name, url=tracked.url, country=tracked.country, active=tracked.active,
         created_at=tracked.created_at, latest_snapshot=_snapshot_out(snap),
         channel_type=ChannelTypeOut.model_validate(channel_type) if channel_type else None,
     )
