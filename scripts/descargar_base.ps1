@@ -1,4 +1,4 @@
-# Baja a la PC la base que mantienen los workflows de GitHub Actions (levantamiento-canales.yml):
+﻿# Baja a la PC la base que mantienen los workflows de GitHub Actions (levantamiento-canales.yml):
 # el último artifact "channel-analytics-db", lo descifra y lo deja como channel_analytics.db,
 # para ver en el dashboard local las fotos tomadas en la nube.
 #
@@ -45,7 +45,11 @@ try {
     Expand-Archive $zip -DestinationPath $tmp
     $enc = Join-Path $tmp "channel_analytics.db.gpg"
     $nueva = Join-Path $tmp "channel_analytics.db"
-    $pass | & $gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 0 --decrypt --output $nueva $enc
+    # La clave va en un archivo sin salto de línea: por tubería, Windows PowerShell le agrega "\r\n".
+    $passFile = Join-Path $tmp "pass"
+    [System.IO.File]::WriteAllText($passFile, $pass)
+    & $gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-file $passFile --decrypt --output $nueva $enc
+    Remove-Item $passFile
     if ($LASTEXITCODE -ne 0) { Write-Error "No se pudo descifrar: ¿DB_PASSPHRASE distinta del secret del repo?" }
 
     $py = Join-Path $repoDir ".venv\Scripts\python.exe"
